@@ -47,6 +47,19 @@ class DumpTest(unittest.TestCase):
             items = json.loads(p.read_text(encoding="utf-8"))["feeds"][0]["articles"]
             self.assertEqual([set(i) == {"p"} for i in items].count(True), 2)
 
+    def test_from_dump_keeps_counts_of_unmeasured_articles(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cfg = dict(CONFIG, max_fetch_per_topic=1)
+            live, again = io.StringIO(), io.StringIO()
+            with redirect_stdout(live):
+                run(cfg, d / "live", NOW, fetcher=fake_fetch, page_fetcher=fake_page, dump=d / "raw.json")
+            with redirect_stdout(again):
+                run(cfg, d / "again", NOW, from_dump=d / "raw.json")
+            pick = lambda out: [l for l in out.getvalue().splitlines() if ": 기사" in l]
+            self.assertEqual(pick(live), pick(again))
+            self.assertIn("산업경제: 기사 3 → 기간 안 3 → 본문 1/1 → 1건", pick(live))
+
     def test_from_dump_ignores_removed_feeds(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)

@@ -31,12 +31,12 @@ def load_results(data: dict) -> list[FeedResult]:
     if data.get("version") != 2:
         raise ValueError("이 형식의 저장 파일은 읽을 수 없습니다(version 2 필요)")
     results = []
-    for f in data["feeds"]:
+    for fi, f in enumerate(data["feeds"]):
         arts = []
         for i, item in enumerate(f["articles"]):
             measured = "b" in item
             arts.append(Article(source=f["source"], title=item.get("t", ""),
-                                link=item.get("l") or f"dump://{f['url']}#{i}",  # 재지 않은 기사: 통계용 자리
+                                link=item.get("l") or f"dump://feed{fi}/item{i}",  # 재지 않은 기사: 통계용 자리(서로 다른 주소)
                                 description=item.get("d", ""), published=parse_date(item.get("p") or ""),
                                 topic=f["topic"], measured=True, body_chars=item.get("b") if measured else None,
                                 page_desc=item.get("pd", "")))
