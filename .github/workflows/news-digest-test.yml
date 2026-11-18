@@ -1,0 +1,45 @@
+name: news-digest test
+
+on:
+  pull_request:
+    paths:
+      - "news-digest/**"
+      - ".github/workflows/news-digest*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "news-digest/**"
+      - ".github/workflows/news-digest*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: news-digest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest -v
+
+  feeds:
+    # 실제 언론사 RSS 주소가 열리는지 보고만 한다(언론사 사정으로 실패할 수 있어 PR을 막지 않음).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: news-digest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m newsdigest --check-feeds || echo "::warning::일부 RSS 주소를 가져오지 못했습니다. 작업 요약(Summary)의 표를 보세요."
