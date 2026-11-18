@@ -34,7 +34,7 @@ def bigrams(title: str) -> set[str]:
 
 _TOKEN = re.compile(r"[가-힣A-Za-z0-9]+")
 _PARTICLES = ("에서", "에게", "으로", "까지", "부터", "에는", "에도", "이다", "에", "은", "는", "이", "가", "을", "를",
-              "의", "도", "로", "와", "과", "만")
+              "의", "도", "로", "와", "과", "만", "서")
 _STOP = {"종합", "속보", "단독", "영상", "포토", "정부", "오늘", "내일", "이유", "관련", "위해", "대한", "통해", "이번",
          "올해", "내년", "기자", "뉴스", "사진", "1보", "2보", "3보"}
 MIN_SHARED_WORDS = 3     # 이만큼 핵심 낱말이 겹치면 같은 소식
@@ -111,13 +111,18 @@ def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch
 
 
 def group_similar(articles: list[Article]) -> list[list[Article]]:
-    """같은 소식끼리 묶는다(묶음 안 어느 기사와든 같은 소식이면 같은 묶음)."""
+    """같은 소식끼리 묶는다. 묶음 구성원 과반과 같은 소식이어야 들어간다.
+
+    한 기사와만 닮아도 들어가게 하면 A≈B, B≈C, C≈D…로 사슬처럼 이어져 '엔비디아', '수능'처럼
+    큰 주제 전체가 한 소식으로 뭉친다(실제 실행에서 9곳 보도로 부풀려짐).
+    """
     keys = {id(a): (bigrams(a.title), keywords(a.title)) for a in articles}
     groups: list[list[Article]] = []
     for a in articles:
         ka = keys[id(a)]
         for g in groups:
-            if any(_same_story(ka, keys[id(b)]) for b in g):
+            hits = sum(1 for b in g if _same_story(ka, keys[id(b)]))
+            if hits * 2 > len(g):  # 과반
                 g.append(a)
                 break
         else:

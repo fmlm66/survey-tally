@@ -22,14 +22,6 @@
   },
   "headline_feeds": [
     {
-      "source": "연합뉴스",
-      "url": "https://www.yna.co.kr/rss/headline.xml"
-    },
-    {
-      "source": "한겨레",
-      "url": "https://www.hani.co.kr/rss/lead/"
-    },
-    {
       "source": "SBS",
       "url": "https://news.sbs.co.kr/news/headlineRssFeed.do?plink=RSSREADER"
     }

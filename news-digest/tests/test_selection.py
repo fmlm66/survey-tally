@@ -55,6 +55,14 @@ class HelpersTest(unittest.TestCase):
         for a, b in different:
             self.assertEqual(len(group_similar([art(a), art(b)])), 2, (a, b))
 
+    def test_no_chaining_into_mega_story(self):
+        # A≈B, B≈C 이지만 A와 C는 다른 소식: C는 A·B 묶음의 절반 이상과 닮지 않아 따로
+        a = art("엔비디아 3분기 매출 사상 최대 실적")
+        b = art("엔비디아 사상 최대 실적에 젠슨 황 복귀 뜻")
+        c = art("엔비디아 젠슨 황 복귀 뜻에 이사회 재선임 계획 없어")
+        groups = group_similar([a, b, c])
+        self.assertEqual([len(g) for g in groups], [2, 1])
+
     def test_group_similar(self):
         g = group_similar([art("정부, AI 반도체에 1조 투자"), art("챗GPT 새 버전 공개"), art("정부 AI반도체 1조 투자한다")])
         self.assertEqual([len(x) for x in g], [2, 1])
