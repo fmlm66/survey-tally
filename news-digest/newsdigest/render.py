@@ -24,8 +24,8 @@ main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
 h1 { font-size:1.45rem; margin:0 0 4px; }
 .sub { margin:0 0 16px; color:var(--muted); }
 .tab-input { position:absolute; opacity:0; pointer-events:none; }
-.tab-bar { position:sticky; top:0; z-index:1; display:flex; gap:6px; overflow-x:auto; padding:8px 0; margin:0 0 12px;
-  background:var(--bg); border-bottom:1px solid var(--line); scrollbar-width:thin; }
+.tab-bar { position:sticky; top:0; z-index:1; display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; margin:0 0 12px;
+  background:var(--bg); border-bottom:1px solid var(--line); }
 .tab-bar label { flex:none; padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--panel);
   cursor:pointer; white-space:nowrap; font-size:.95rem; }
 .tab-bar label span { color:var(--muted); font-size:.8rem; margin-left:4px; }
