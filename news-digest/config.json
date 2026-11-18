@@ -24,6 +24,14 @@
     {
       "source": "SBS",
       "url": "https://news.sbs.co.kr/news/headlineRssFeed.do?plink=RSSREADER"
+    },
+    {
+      "source": "New York Times",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+    },
+    {
+      "source": "BBC News",
+      "url": "https://feeds.bbci.co.uk/news/rss.xml"
     }
   ],
   "topics": [
@@ -251,6 +259,45 @@
         {
           "source": "전자신문",
           "url": "https://rss.etnews.com/Section901.xml"
+        }
+      ]
+    },
+    {
+      "name": "해외 언론",
+      "per_source_max": 3,
+      "body_optional": true,
+      "feeds": [
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/world/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/technology/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
         }
       ]
     }

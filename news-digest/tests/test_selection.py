@@ -166,6 +166,37 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(chosen["경제"][0].source, "C")  # 묶음에서 점수 같으면 본문이 긴 기사가 대표
         self.assertEqual(sorted(chosen["경제"][0].also), ["A", "B"])
 
+    def test_picked_duplicates_merged_with_links(self):
+        # 제목만으로는 따로 남는 같은 소식(요약문 낱말이 많이 겹침) → 한 항목으로, 다른 기사는 링크로
+        d1 = "이재명 대통령이 18일 선전에서 시진핑 국가주석과 정상회담을 하고 양국 경제 협력과 한반도 평화를 논의했다"
+        d2 = "이재명 대통령은 18일 선전에서 열린 정상회담에서 시진핑 국가주석에게 한반도 평화와 양국 경제 협력 확대를 강조했다"
+        arts = [art("李대통령 “한반도 평화는 한중 공동이익”", "A", body=1500, desc=d1, link="https://a.kr/x"),
+                art("李대통령, 中 시진핑과 정상회담…호혜적 협력 강조", "B", body=1400, desc=d2, link="https://b.kr/y"),
+                art("여야 대표 회동 무산", "C", body=900)]
+        chosen, _ = self.run_select(arts, per_topic=5)
+        self.assertEqual(len(chosen["정치"]), 2)
+        top = chosen["정치"][0]
+        self.assertEqual(top.source, "A")
+        self.assertEqual(top.also_links, [("B", "李대통령, 中 시진핑과 정상회담…호혜적 협력 강조", "https://b.kr/y")])
+        self.assertEqual(top.also, ["B"])
+
+    def test_different_stories_not_merged(self):
+        arts = [art("‘AI 커닝’ 세무사 수석, 계산기 개조해 부정행위", "A", body=1500,
+                    desc="세무사 시험 수석 합격자가 반입이 허용된 계산기를 개조해 부정행위를 한 것으로 드러났다"),
+                art("[수능 D-1] AI 부정행위 우려 속 예비 소집", "B", body=1500,
+                    desc="수능을 하루 앞두고 수험생들이 예비 소집에 참석해 시험장을 확인했다")]
+        chosen, _ = self.run_select(arts, per_topic=5)
+        self.assertEqual(len(chosen["정치"]), 2)
+
+    def test_topic_options_body_optional_and_source_cap(self):
+        cfg_topics = [{"name": "정치", "feeds": []}, {"name": "경제", "feeds": [], "per_source_max": 3, "body_optional": True}]
+        arts = [art(t, "NYT", topic="경제", body=None) for t in ("Fed holds rates steady", "China exports slump", "Oil prices jump")]
+        arts.append(art("Paywalled long read on AI chips", "NYT", topic="경제", body=None))
+        arts.append(art("국회 예산 처리 지연", "A", topic="정치", body=None))  # 정치는 본문 필수
+        chosen, _ = self.run_select(arts, topics=cfg_topics, per_topic=5)
+        self.assertEqual(len(chosen["경제"]), 3)  # 한 언론사 3건까지
+        self.assertEqual(chosen["정치"], [])
+
     def test_coverage_counts_across_topics(self):
         arts = [art("환율 1500원 돌파 비상", "A", topic="정치", body=900),
                 art("환율 1500원 돌파 수출 비상", "B", topic="경제", body=900),

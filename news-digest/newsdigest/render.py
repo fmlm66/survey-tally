@@ -39,6 +39,8 @@ ol.news h3 a { color:var(--text); text-decoration:none; }
 ol.news h3 a:hover { text-decoration:underline; }
 .meta { font-size:.85rem; color:var(--muted); margin:0 0 6px; }
 .summary { margin:0; overflow-wrap:anywhere; }
+.also { margin:6px 0 0; font-size:.85rem; color:var(--muted); }
+.also a { color:var(--accent); }
 .empty { padding:24px 16px; background:var(--panel); border:1px solid var(--line); border-radius:10px; margin:0; }
 footer { margin-top:28px; font-size:.85rem; color:var(--muted); }
 footer ul { padding-left:1.2em; }
@@ -76,9 +78,19 @@ def _meta(a: Article, now: datetime) -> str:
     good = [r for r in a.reasons if not r.startswith(("홍보", "연예"))]  # 선정 이유만(감점 이유는 감춘다)
     if good:
         parts.append(" · ".join(good))
-    if a.also:
+    if a.also and not a.also_links:
         parts.append("같은 소식: " + ", ".join(a.also))
     return " · ".join(parts)
+
+
+def _also_links(a: Article) -> str:
+    """같은 소식을 다룬 다른 언론사 기사를 각각 링크로."""
+    links = []
+    for source, title, link in a.also_links:
+        if SAFE_LINK.match(link):
+            links.append(f'<a href="{escape(link, quote=True)}" title="{escape(title, quote=True)}" '
+                         f'rel="noopener noreferrer">{escape(source)}</a>')
+    return f'<p class="also">같은 소식 다른 기사: {" · ".join(links)}</p>' if links else ""
 
 
 def _article(a: Article, now: datetime) -> str:
@@ -86,7 +98,7 @@ def _article(a: Article, now: datetime) -> str:
     title = escape(clean_text(a.title))
     if SAFE_LINK.match(a.link):  # javascript: 같은 주소는 링크로 만들지 않는다
         title = f'<a href="{escape(a.link, quote=True)}" rel="noopener noreferrer">{title}</a>'
-    return f'<li><h3>{title}</h3><p class="meta">{escape(_meta(a, now))}</p>{summary}</li>'
+    return f'<li><h3>{title}</h3><p class="meta">{escape(_meta(a, now))}</p>{summary}{_also_links(a)}</li>'
 
 
 def render_page(*, config: dict, chosen: dict[str, list[Article]], stats: dict[str, TopicStats],
@@ -178,6 +190,8 @@ def render_text(*, config: dict, chosen: dict[str, list[Article]], stats: dict[s
             if a.summary:
                 lines.append(f"   {a.summary}")
             lines.append(f"   {a.link}")
+            for source, _, link in a.also_links:
+                lines.append(f"   같은 소식 · {source}: {link}")
     failed = [f"{r.topic}·{r.source}" for r in results if r.error]
     if failed:
         lines += ["", "가져오지 못한 RSS: " + ", ".join(failed)]

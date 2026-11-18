@@ -32,6 +32,7 @@ class Article:
     reasons: list[str] = field(default_factory=list)  # 점수 이유(예: "4곳 보도")
     summary: str = ""
     also: list[str] = field(default_factory=list)  # 같은 소식을 다룬 다른 언론사
+    also_links: list[tuple[str, str, str]] = field(default_factory=list)  # (언론사, 제목, 주소)
 
 
 def fetch(url: str, timeout: float = 20.0, retries: int = 2, wait: float = 5.0, sleep=time.sleep) -> bytes:

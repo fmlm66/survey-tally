@@ -74,6 +74,15 @@ class RenderTest(unittest.TestCase):
         meta = re.search(r'<p class="meta">([^<]*)</p>', html).group(1)
         self.assertEqual(meta, "A · 06:40 · 본문 900자 · 4곳 보도 · 심층·단독")  # 감점 이유(홍보성)는 안 보임
 
+    def test_same_story_links(self):
+        a = Article("A", "x", "https://a.kr/1", published=NOW,
+                    also_links=[("한겨레", "제목 <b>", "https://h.kr/2"), ("나쁜곳", "y", "javascript:alert(1)")])
+        html = page({"산업경제": [a]})
+        self.assertIn('<p class="also">같은 소식 다른 기사: <a href="https://h.kr/2" title="제목 &lt;b&gt;" '
+                      'rel="noopener noreferrer">한겨레</a></p>', html)
+        self.assertNotIn("javascript:", html)
+        self.assertNotIn("같은 소식: 한겨레", html)  # 링크가 있으면 meta 줄에는 이름을 되풀이하지 않음
+
     def test_unsafe_link_not_linked(self):
         self.assertNotIn("javascript:", page({"산업경제": [Article("A", "AI", "javascript:alert(1)", published=NOW)]}))
 
@@ -162,7 +171,7 @@ class ConfigTest(unittest.TestCase):
     def test_shipped_config(self):
         config = load_config(HERE / "config.json")
         self.assertEqual([t["name"] for t in config["topics"]],
-                         ["국내정치", "세계정치", "산업경제", "금융증권", "사회", "문화", "과학기술"])
+                         ["국내정치", "세계정치", "산업경제", "금융증권", "사회", "문화", "과학기술", "해외 언론"])
         self.assertEqual(config["per_topic"], 5)
         urls = [f["url"] for t in config["topics"] for f in t["feeds"]]
         self.assertTrue(all(u.startswith("https://") for u in urls))

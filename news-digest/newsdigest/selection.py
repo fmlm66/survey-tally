@@ -136,6 +136,7 @@ def select(articles: list[Article], config: dict, now: datetime,
     """headlines: 언론사 주요뉴스 RSS에 실린 기사 주소(normalize_link)."""
     sc = settings(config)
     topics = [t["name"] for t in config["topics"]]
+    topic_opts = {t["name"]: t for t in config["topics"]}
     hours = config.get("window_hours", 24)
     per_topic = config.get("per_topic", 5)
     max_fetch = config.get("max_fetch_per_topic", 60)
@@ -169,10 +170,12 @@ def select(articles: list[Article], config: dict, now: datetime,
     story_sources: dict[int, list[str]] = {}
     story_of: dict[int, int] = {}
     home: dict[int, str] = {}
+    members: dict[int, list[Article]] = {}
     for gi, g in enumerate(group_similar([a for t in topics for a in real[t]])):
         sources = list(dict.fromkeys(a.source for a in g))
         counts = {t: sum(1 for a in g if a.topic == t) for t in topics}
         home[gi] = max(topics, key=lambda t: (counts[t], -topics.index(t)))
+        members[gi] = g
         for a in g:
             story_sources[id(a)] = sources
             story_of[id(a)] = gi
@@ -190,13 +193,27 @@ def select(articles: list[Article], config: dict, now: datetime,
     # 3) 최종 점수와 고르기
     measured_ok: list[Article] = []
     for topic in topics:
-        ok = [a for a in plans[topic] if a.body_chars and a.body_chars >= sc["min_body"] and in_window(a)]
+        body_optional = topic_opts[topic].get("body_optional", False)  # 유료벽 등으로 본문을 못 읽어도 후보로
+        ok = [a for a in plans[topic] if in_window(a) and (
+            (a.body_chars and a.body_chars >= sc["min_body"]) or (body_optional and a.body_chars is None))]
         stats[topic].measured = len(plans[topic])
         stats[topic].with_body = len(ok)
         for a in ok:
             fin = final_score(a, pre[id(a)], sc)
             a.points, a.reasons = fin.points, fin.reasons
         measured_ok += ok
+
+    def others_of(rep: Article, groups: list[int]) -> list[tuple[str, str, str]]:
+        """같은 소식을 다룬 다른 언론사 기사: 언론사마다 하나(점수·본문이 나은 것), (언론사, 제목, 주소)."""
+        best: dict[str, Article] = {}
+        for gi in groups:
+            for a in members[gi]:
+                if a.source == rep.source or a.link.startswith("dump://"):
+                    continue
+                cur = best.get(a.source)
+                if cur is None or (a.points, a.body_chars or 0) > (cur.points, cur.body_chars or 0):
+                    best[a.source] = a
+        return [(src, clean_text(a.title), a.link) for src, a in best.items()]
 
     chosen: dict[str, list[Article]] = {}
     for topic in topics:
@@ -205,27 +222,51 @@ def select(articles: list[Article], config: dict, now: datetime,
         for a in measured_ok:
             if home[story_of[id(a)]] == topic:
                 by_story.setdefault(story_of[id(a)], []).append(a)
-        reps = []
-        for g in by_story.values():
-            rep = max(g, key=lambda a: (a.points, a.body_chars))
-            rep.also = [s for s in story_sources[id(rep)] if s != rep.source]
-            reps.append(rep)
+        reps = [max(g, key=lambda a: (a.points, a.body_chars or 0)) for g in by_story.values()]
         reps.sort(key=lambda a: (a.points, recency(a)), reverse=True)
+
+        # 앞 단계에서 따로 남은 같은 소식을 한 번 더 합친다(점수 높은 기사에 합침, 사슬 없이 대표끼리만 비교)
+        kept: list[tuple[Article, list[int]]] = []
+        for a in reps:
+            for k, groups in kept:
+                if same_story_loose(k, a):
+                    groups.append(story_of[id(a)])
+                    break
+            else:
+                kept.append((a, [story_of[id(a)]]))
+
         picked: list[Article] = []
         per_source: dict[str, int] = {}
+        source_cap = topic_opts[topic].get("per_source_max", sc["per_source_max"])
         opinions = 0
-        for a in reps:
+        for a, groups in kept:
             if len(picked) >= per_topic:
                 break
-            if per_source.get(a.source, 0) >= sc["per_source_max"]:
+            if per_source.get(a.source, 0) >= source_cap:
                 continue
             if is_opinion(a, sc):
                 if opinions >= sc["opinion"]["max_per_topic"]:
                     continue
                 opinions += 1
             per_source[a.source] = per_source.get(a.source, 0) + 1
+            a.also_links = others_of(a, groups)
+            a.also = [src for src, _, _ in a.also_links]
             a.summary = summarize(a.description or a.page_desc, a.title)
             picked.append(a)
         st.selected = len(picked)
         chosen[topic] = picked
     return chosen, stats
+
+
+MERGE_MIN_SHARED = 5     # 제목+요약문 핵심 낱말이 이만큼 겹치고
+MERGE_OVERLAP = 0.3      # 짧은 쪽 낱말 수 대비 이 비율 이상이면 같은 소식(실측: 같은 소식 0.35~0.50, 다른 소식 ≤0.17)
+
+
+def same_story_loose(a: Article, b: Article) -> bool:
+    """뽑힌 기사끼리 다시 비교: 제목 기준이 같거나, 제목+요약문 핵심 낱말이 충분히 겹치면 같은 소식."""
+    if _same_story((bigrams(a.title), keywords(a.title)), (bigrams(b.title), keywords(b.title))):
+        return True
+    ka = keywords(a.title + " " + (a.description or a.page_desc))
+    kb = keywords(b.title + " " + (b.description or b.page_desc))
+    shared = len(ka & kb)
+    return shared >= MERGE_MIN_SHARED and shared / max(min(len(ka), len(kb)), 1) >= MERGE_OVERLAP
