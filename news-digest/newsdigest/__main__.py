@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .feeds import KST, collect, fetch
-from .render import write_site
+from .dump import read_dump, write_dump
+from .render import render_text, write_site
 from .selection import select
 
 HERE = Path(__file__).resolve().parent.parent  # news-digest/
@@ -49,10 +50,13 @@ def check_feeds(config: dict, now: datetime, fetcher=fetch) -> int:
     return 1 if bad else 0
 
 
-def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch) -> int:
-    results = collect(config["sources"], fetcher=fetcher)
+def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch, *, from_dump: Path | None = None,
+        dump: Path | None = None, print_text: bool = False) -> int:
+    results = read_dump(from_dump) if from_dump else collect(config["sources"], fetcher=fetcher)
     for r in results:
         print(f"{'실패' if r.error else '확인'} {r.source} {len(r.articles)}건 {r.url}" + (f" — {r.error}" if r.error else ""))
+    if dump:
+        write_dump(dump, results, config)
     if all(r.error for r in results):
         print("모든 RSS 주소를 가져오지 못해 페이지를 만들지 않았습니다.", file=sys.stderr)
         return 1
@@ -60,6 +64,9 @@ def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch) -> int:
     chosen, stats = select(articles, config, now)
     day, index = write_site(out_dir, config=config, articles=chosen, stats=stats, results=results, now=now)
     print(f"{stats.selected}건 선택 → {day}, {index}")
+    if print_text:
+        print()
+        print(render_text(config=config, articles=chosen, stats=stats, results=results, now=now))
     return 0
 
 
@@ -68,6 +75,9 @@ def main(argv: list[str] | None = None, fetcher=fetch) -> int:
     parser.add_argument("--config", type=Path, default=HERE / "config.json")
     parser.add_argument("--out", type=Path, default=HERE.parent / "news")
     parser.add_argument("--now", help="기준 시각(ISO 8601, 시험용). 기본은 지금")
+    parser.add_argument("--dump", type=Path, help="수집 결과(주제 기사)를 JSON으로 저장")
+    parser.add_argument("--from-dump", type=Path, help="RSS에 접속하지 않고 저장해 둔 JSON으로 만들기")
+    parser.add_argument("--print", dest="print_text", action="store_true", help="요약을 글로도 출력")
     parser.add_argument("--check-feeds", action="store_true", help="RSS 주소만 점검하고 페이지는 만들지 않음")
     args = parser.parse_args(argv)
 
@@ -77,7 +87,8 @@ def main(argv: list[str] | None = None, fetcher=fetch) -> int:
         now = now.replace(tzinfo=KST)
     if args.check_feeds:
         return check_feeds(config, now, fetcher=fetcher)
-    return run(config, args.out, now, fetcher=fetcher)
+    return run(config, args.out, now, fetcher=fetcher, from_dump=args.from_dump, dump=args.dump,
+               print_text=args.print_text)
 
 
 if __name__ == "__main__":

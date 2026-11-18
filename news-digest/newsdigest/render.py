@@ -112,6 +112,24 @@ def render_page(*, config: dict, articles: list[Article], stats: Stats, results:
 """
 
 
+def render_text(*, config: dict, articles: list[Article], stats: Stats, results: list[FeedResult], now: datetime) -> str:
+    """같은 내용을 마크다운 글로(로그·메신저용)."""
+    lines = [f"# {config['topic']} 아침 뉴스 · {format_date(now)} · {len(articles)}건", ""]
+    if not articles:
+        lines.append(f"최근 {config.get('window_hours', 24)}시간 동안 '{config['topic']}' 주제의 새 기사가 없습니다.")
+    for i, a in enumerate(articles, 1):
+        meta = f"{a.source} · {format_time(a.published, now)}" + (f" · 같은 소식: {', '.join(a.also)}" if a.also else "")
+        lines.append(f"{i}. **{clean_text(a.title)}** ({meta})")
+        if a.summary:
+            lines.append(f"   {a.summary}")
+        lines.append(f"   {a.link}")
+    failed = [r.source for r in results if r.error]
+    lines += ["", f"기사 {stats.total}건 중 최근 {config.get('window_hours', 24)}시간 {stats.in_window}건, 주제 관련 {stats.matched}건에서 {stats.selected}건."]
+    if failed:
+        lines.append("가져오지 못한 곳: " + ", ".join(failed))
+    return "\n".join(lines)
+
+
 def write_site(out_dir: Path, **page_args) -> tuple[Path, Path]:
     """news/YYYY-MM-DD.html(그날)과 news/index.html(최신 + 지난 목록)을 쓴다. 같은 날 다시 돌리면 덮어쓴다."""
     out_dir.mkdir(parents=True, exist_ok=True)
