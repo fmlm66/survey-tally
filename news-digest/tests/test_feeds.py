@@ -60,20 +60,21 @@ class ParseDateTest(unittest.TestCase):
 
 
 class CollectTest(unittest.TestCase):
-    def test_one_failure_does_not_stop_others(self):
+    def test_topics_and_one_failure_does_not_stop_others(self):
         def fetcher(url):
             if "bad" in url:
                 raise OSError("timed out")
             return read("rss2.xml")
 
-        results = collect([
-            {"name": "A", "feeds": ["https://a/rss", "https://a/bad"]},
-            {"name": "B", "feeds": ["https://b/rss"]},
-        ], fetcher=fetcher)
-        self.assertEqual([(r.source, r.error is None, len(r.articles)) for r in results],
-                         [("A", True, 3), ("A", False, 0), ("B", True, 3)])
+        config = {"topics": [
+            {"name": "정치", "feeds": [{"source": "A", "url": "https://a/rss"}, {"source": "A", "url": "https://a/bad"}]},
+            {"name": "경제", "feeds": [{"source": "B", "url": "https://b/rss"}]},
+        ]}
+        results = collect(config, fetcher=fetcher)
+        self.assertEqual([(r.topic, r.source, r.error is None, len(r.articles)) for r in results],
+                         [("정치", "A", True, 3), ("정치", "A", False, 0), ("경제", "B", True, 3)])
         self.assertIn("timed out", results[1].error)
-
+        self.assertEqual({a.topic for a in results[2].articles}, {"경제"})
 
 if __name__ == "__main__":
     unittest.main()

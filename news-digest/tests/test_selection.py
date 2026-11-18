@@ -2,38 +2,28 @@ import unittest
 from datetime import datetime, timedelta
 
 from newsdigest.feeds import KST, Article
-from newsdigest.selection import keyword_pattern, normalize_link, score, select, similarity
+from newsdigest.selection import group_similar, normalize_link, plan_fetch, select, similarity
 from newsdigest.summarize import clean_text, strip_lead, summarize
 
 NOW = datetime(2026, 11, 18, 6, 40, tzinfo=KST)
+_n = iter(range(10**6))
 
 
-def art(title, source="A", desc="", hours_ago=1, link=None):
-    return Article(source=source, title=title, link=link or f"https://{source}.kr/{abs(hash(title))}",
-                   description=desc, published=None if hours_ago is None else NOW - timedelta(hours=hours_ago))
+def art(title, source="A", topic="정치", hours_ago=1, body=None, desc="", link=None):
+    a = Article(source=source, title=title, link=link or f"https://{source}.kr/{next(_n)}", description=desc,
+                published=None if hours_ago is None else NOW - timedelta(hours=hours_ago), topic=topic)
+    a._body = body  # 가짜 측정에서 쓸 본문 길이
+    return a
 
 
-CONFIG = {"keywords": ["AI", "인공지능", "챗GPT"], "window_hours": 24, "max_articles": 15, "per_source_max": 5}
+def fake_measure(arts):
+    for a in arts:
+        a.measured = True
+        a.body_chars = a._body
 
 
-class KeywordTest(unittest.TestCase):
-    def test_ascii_keyword_not_inside_english_words(self):
-        p = keyword_pattern("AI")
-        for text in ["AI 반도체", "생성형AI", "AI·로봇", "(AI)", "ai 시대", "AI2 모델"]:
-            self.assertTrue(p.search(text), text)
-        for text in ["MAIN 사업", "Thailand 여행", "OpenAI 발표", "SAID"]:
-            self.assertFalse(p.search(text), text)
-
-    def test_korean_keyword_substring(self):
-        self.assertTrue(keyword_pattern("인공지능").search("인공지능법"))
-        self.assertTrue(keyword_pattern("챗GPT").search("오픈AI 챗GPT 새 버전"))
-
-    def test_score_title_beats_body(self):
-        kws = [keyword_pattern(k) for k in CONFIG["keywords"]]
-        self.assertEqual(score(art("AI 인공지능 소식"), kws), 6)
-        self.assertEqual(score(art("경제 소식", desc="인공지능 언급"), kws), 1)
-        self.assertEqual(score(art("AI 소식", desc="AI 또"), kws), 3)  # 한 키워드는 한 번만
-        self.assertEqual(score(art("날씨"), kws), 0)
+CONFIG = {"topics": [{"name": "정치", "feeds": []}, {"name": "경제", "feeds": []}],
+          "window_hours": 24, "per_topic": 2, "max_fetch_per_topic": 10}
 
 
 class HelpersTest(unittest.TestCase):
@@ -47,13 +37,21 @@ class HelpersTest(unittest.TestCase):
                 ("AI앱 ‘피클’, 인공지능 부정행위 우려에 “수능 시간 동안 이미지 입력 제한”", "피클, 수능시간에 이미지 입력 제한한다…AI 수능 악용 차단")]
         different = [("정부, AI 반도체에 1조 투자", "챗GPT 새 버전 공개"),
                      ("‘AI 커닝’ 2년전부터 국가시험서 적발…스마트안경은 올해 첫 사례", "경찰, ‘AI 커닝’ 세무사 수석 합격자 압수수색"),
-                     ("삼성 스마트싱스도 챗GPT 연동…AI로 가전 제어 확산", "대림동 신풍역 더 퍼스트, AI 스마트홈·친환경 설계 도입 추진"),
                      ("삼성 스마트싱스도 챗GPT 연동…AI로 가전 제어 확산", "【独自】「AI眼鏡で試験合格、両親も知らず」相次ぐカンニング自白"),
                      ("AI", "AI 반도체 수출")]
         for a, b in same:
             self.assertGreaterEqual(similarity(a, b), 0.45, (a, b))
         for a, b in different:
             self.assertLess(similarity(a, b), 0.45, (a, b))
+
+    def test_plan_fetch_round_robin_newest_first(self):
+        arts = [art("a1", "A", hours_ago=5), art("a2", "A", hours_ago=1), art("a3", "A", hours_ago=3),
+                art("b1", "B", hours_ago=2), art("c1", "C", hours_ago=None)]
+        self.assertEqual([a.title for a in plan_fetch(arts, 4)], ["a2", "b1", "c1", "a3"])
+
+    def test_group_similar(self):
+        g = group_similar([art("정부, AI 반도체에 1조 투자"), art("챗GPT 새 버전 공개"), art("정부 AI반도체 1조 투자한다")])
+        self.assertEqual([len(x) for x in g], [2, 1])
 
 
 class SummarizeTest(unittest.TestCase):
@@ -65,11 +63,11 @@ class SummarizeTest(unittest.TestCase):
         self.assertEqual(strip_lead("[앵커] [리포트] 오늘 소식입니다."), "오늘 소식입니다.")
         self.assertEqual(strip_lead("◀ 앵커 ▶ 오늘 소식입니다."), "오늘 소식입니다.")
         self.assertEqual(strip_lead("(워싱턴=연합뉴스) 김철수 특파원 = 미국이"), "미국이")
-        self.assertEqual(strip_lead("세율 = 10% 로 정했다."), "세율 = 10% 로 정했다.")  # 기자 표기 아님
+        self.assertEqual(strip_lead("세율 = 10% 로 정했다."), "세율 = 10% 로 정했다.")
 
     def test_two_sentences(self):
-        s = summarize("<p>(서울=연합뉴스) 홍길동 기자 = 첫 문장이다. 둘째 문장이다. 셋째 문장이다.</p>")
-        self.assertEqual(s, "첫 문장이다. 둘째 문장이다.")
+        self.assertEqual(summarize("<p>(서울=연합뉴스) 홍길동 기자 = 첫 문장이다. 둘째 문장이다. 셋째 문장이다.</p>"),
+                         "첫 문장이다. 둘째 문장이다.")
 
     def test_sentence_without_space(self):
         self.assertEqual(summarize("성적을 믿기 어렵다고 답했다.특히 감독을 강화해야 한다. 셋째다."),
@@ -85,61 +83,75 @@ class SummarizeTest(unittest.TestCase):
 
 
 class SelectTest(unittest.TestCase):
-    def test_window_and_undated(self):
-        arts = [art("AI 새 소식", hours_ago=2), art("AI 옛 소식", hours_ago=30), art("AI 날짜 없음", hours_ago=None),
-                art("AI 미래 시각", hours_ago=-3), art("AI 5분 뒤", hours_ago=-1/12)]
-        chosen, stats = select(arts, CONFIG, NOW)
-        self.assertEqual([a.title for a in chosen], ["AI 새 소식"])
-        self.assertEqual((stats.total, stats.undated, stats.in_window, stats.matched, stats.selected), (5, 1, 1, 1, 1))
+    def run_select(self, arts, **cfg):
+        return select(arts, dict(CONFIG, **cfg), NOW, measure=fake_measure)
 
-    def test_undated_recent_source_included(self):
-        cfg = dict(CONFIG, sources=[{"name": "H", "feeds": ["x"], "undated": "recent"}, {"name": "A", "feeds": ["y"]}])
-        arts = [art("AI 날짜 없음 H", source="H", hours_ago=None), art("AI 날짜 없음 A", source="A", hours_ago=None),
-                art("인공지능 새 정책 발표", source="A", hours_ago=3)]
-        chosen, stats = select(arts, cfg, NOW)
-        self.assertEqual(sorted(a.title for a in chosen), ["AI 날짜 없음 H", "인공지능 새 정책 발표"])
-        self.assertEqual(stats.undated, 2)
+    def test_longest_bodies_per_topic(self):
+        arts = [art("국회 예산안 처리 합의", body=800), art("대통령 순방 출국", body=2500, source="B"),
+                art("여야 대표 회동 무산", body=1500), art("선거구 획정 논의 착수", body=None),
+                art("환율 급등 수출 비상", topic="경제", body=3000), art("반도체 수출 증가", topic="경제", body=100)]
+        chosen, stats = self.run_select(arts)
+        self.assertEqual([a.title for a in chosen["정치"]], ["대통령 순방 출국", "여야 대표 회동 무산"])
+        self.assertEqual([a.title for a in chosen["경제"]], ["환율 급등 수출 비상", "반도체 수출 증가"])
+        st = stats["정치"]
+        self.assertEqual((st.total, st.in_window, st.measured, st.with_body, st.selected), (4, 4, 4, 3, 2))
 
-    def test_off_topic_and_excluded(self):
-        cfg = dict(CONFIG, exclude_keywords=["광고"])
-        arts = [art("날씨 소식"), art("AI 광고 안내"), art("인공지능 정책")]
-        chosen, _ = select(arts, cfg, NOW)
-        self.assertEqual([a.title for a in chosen], ["인공지능 정책"])
+    def test_window_and_future(self):
+        arts = [art("최근 기사 하나", body=500), art("어제보다 전 기사", hours_ago=30, body=9000),
+                art("기준 시각 뒤 기사", hours_ago=-0.1, body=9000), art("날짜 없는 기사", hours_ago=None, body=9000)]
+        chosen, _ = self.run_select(arts)
+        self.assertEqual([a.title for a in chosen["정치"]], ["최근 기사 하나"])
 
-    def test_same_link_counted_once(self):
-        arts = [art("AI 정책", link="https://www.a.kr/1"), art("AI 정책(종합)", link="http://a.kr/1/")]
-        chosen, stats = select(arts, CONFIG, NOW)
-        self.assertEqual(len(chosen), 1)
-        self.assertEqual(stats.matched, 1)
+    def test_undated_recent_source_and_page_date(self):
+        arts = [art("날짜 없는 한겨레 기사", source="H", hours_ago=None, body=900),
+                art("페이지 날짜가 오래된 기사", source="H", hours_ago=None, body=5000)]
 
-    def test_similar_titles_grouped_and_ranked_first(self):
-        arts = [
-            art("챗GPT 새 버전 공개", source="A", hours_ago=1),
-            art("정부, AI 반도체에 1조 투자", source="A", hours_ago=5, desc="인공지능 반도체"),
-            art("정부 AI반도체 1조 투자한다", source="B", hours_ago=4),
-            art("정부, AI 반도체 1조 투자 발표", source="C", hours_ago=3),
-            art("정부, AI 반도체에 1조 투자", source="A", hours_ago=2, link="https://A.kr/dup-other-link"),
-        ]
-        chosen, _ = select(arts, CONFIG, NOW)
-        self.assertEqual(len(chosen), 2)
-        top = chosen[0]
-        self.assertEqual(top.title, "정부, AI 반도체에 1조 투자")
-        self.assertEqual(top.description, "인공지능 반도체")  # 점수 높은 것이 대표
-        self.assertEqual(sorted(top.also), ["B", "C"])  # 같은 언론사는 다시 적지 않음
-        self.assertEqual(chosen[1].title, "챗GPT 새 버전 공개")
+        def measure(items):
+            fake_measure(items)
+            items[1].published = NOW - timedelta(days=3)  # 기사 페이지에서 읽은 발행 시각
 
-    def test_limits(self):
-        words = ["반도체 수출 급증", "로봇 청소기 신제품", "교실 수업 변화", "병원 진단 도입", "은행 대출 심사",
-                 "국방부 전력 강화", "농촌 스마트팜", "우주 발사체 성공", "게임 업계 실적", "언론사 기사 작성",
-                 "법원 판결문 검색", "기후 예측 정확도"]
-        arts = [art(f"AI {w}", source="A" if i < 8 else "B", hours_ago=i % 20 + 1) for i, w in enumerate(words)]
-        chosen, _ = select(arts, dict(CONFIG, per_source_max=3, max_articles=5), NOW)
-        self.assertEqual([a.source for a in chosen].count("A"), 3)
-        self.assertEqual(len(chosen), 5)
+        chosen, _ = select(arts, dict(CONFIG, sources={"H": {"undated": "recent"}}), NOW, measure=measure)
+        self.assertEqual([a.title for a in chosen["정치"]], ["날짜 없는 한겨레 기사"])
 
-    def test_summary_filled(self):
-        chosen, _ = select([art("AI 소식", desc="(서울=연합뉴스) 홍길동 기자 = 하나다. 둘이다. 셋이다.")], CONFIG, NOW)
-        self.assertEqual(chosen[0].summary, "하나다. 둘이다.")
+    def test_same_story_keeps_longest_and_lists_others(self):
+        arts = [art("정부, AI 반도체에 1조 투자", source="A", body=900),
+                art("정부 AI반도체 1조 투자한다", source="B", body=2000),
+                art("정부, AI 반도체 1조 투자 발표", source="C", body=1200),
+                art("정부, AI 반도체에 1조 투자(종합)", source="B", body=1000),
+                art("챗GPT 새 버전 공개", source="A", body=1500)]
+        chosen, _ = self.run_select(arts)
+        top = chosen["정치"][0]
+        self.assertEqual((top.source, top.body_chars), ("B", 2000))
+        self.assertEqual(sorted(top.also), ["A", "C"])
+        self.assertEqual(chosen["정치"][1].title, "챗GPT 새 버전 공개")
+
+    def test_same_link_in_two_topics_goes_to_first(self):
+        arts = [art("환율 급등", topic="경제", link="https://a.kr/1", body=900),
+                art("환율 급등", topic="정치", link="https://www.a.kr/1/", body=900)]
+        chosen, stats = self.run_select(arts)
+        self.assertEqual(len(chosen["정치"]), 1)
+        self.assertEqual(chosen["경제"], [])
+        self.assertEqual(stats["경제"].in_window, 0)
+
+    def test_fetch_limit(self):
+        titles = ["국회 예산 처리", "대통령 해외 순방", "여야 대표 회동", "선거구 획정 착수", "지방선거 공천 갈등",
+                  "개헌 논의 재점화", "국정감사 일정 확정", "총리 인사청문회", "정당 지지율 조사", "외교부 장관 발언"]
+        arts = [art(t, hours_ago=i + 1, body=100 * (i + 1)) for i, t in enumerate(titles)]
+        chosen, stats = self.run_select(arts, max_fetch_per_topic=3)
+        self.assertEqual(stats["정치"].measured, 3)
+        self.assertEqual([a.body_chars for a in chosen["정치"]], [300, 200])  # 최신 3건 중에서
+
+    def test_summary_from_rss_or_page(self):
+        a = art("환율 급등에 수출 비상", desc="(서울=연합뉴스) 홍길동 기자 = 하나다. 둘이다. 셋이다.", body=900)
+        b = art("국회 예산안 법정시한 넘겨", body=800)
+        b.page_desc = "페이지 소개문이다."
+
+        def measure(items):
+            fake_measure(items)
+            b.page_desc = "페이지 소개문이다."
+
+        chosen, _ = select([a, b], CONFIG, NOW, measure=measure)
+        self.assertEqual([x.summary for x in chosen["정치"]], ["하나다. 둘이다.", "페이지 소개문이다."])
 
 
 if __name__ == "__main__":

@@ -1,39 +1,21 @@
-"""주제에 맞는 기사 고르기: 기간 → 키워드 점수 → 중복 묶기 → 순위."""
+"""주제별로 기사 고르기: 기간 → 중복 → 본문 길이 재기 → 같은 소식 묶기 → 본문 긴 순."""
 
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Callable
 from urllib.parse import urlsplit
 
-from .feeds import Article
+from .article import parse_article
+from .feeds import Article, fetch_page
 from .summarize import clean_text, summarize
 
-TITLE_WEIGHT = 3
-BODY_WEIGHT = 1
 SIMILAR = 0.45
-
-
-def keyword_pattern(keyword: str) -> re.Pattern:
-    """영문·숫자 키워드는 영문 단어 안에 묻힌 경우를 세지 않는다(AI ≠ MAIN). 한글은 그대로 포함 검사."""
-    kw = keyword.strip()
-    escaped = re.escape(kw)
-    if re.fullmatch(r"[A-Za-z0-9 .+#-]+", kw):
-        return re.compile(rf"(?<![A-Za-z]){escaped}(?![A-Za-z])", re.I)
-    return re.compile(escaped, re.I)
-
-
-def score(article: Article, keywords: list[re.Pattern]) -> int:
-    title = clean_text(article.title)
-    body = clean_text(article.description)
-    total = 0
-    for pat in keywords:
-        if pat.search(title):
-            total += TITLE_WEIGHT
-        elif pat.search(body):
-            total += BODY_WEIGHT
-    return total
+MIN_BIGRAMS = 4  # 이보다 짧은 제목은 비교하지 않는다
+_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣぀-ヿ一-鿿]")  # 한글·영숫자·일본어·한자
 
 
 def normalize_link(link: str) -> str:
@@ -41,10 +23,6 @@ def normalize_link(link: str) -> str:
     host = parts.netloc.lower().removeprefix("www.")
     path = parts.path.rstrip("/")
     return f"{host}{path}?{parts.query}" if parts.query else f"{host}{path}"
-
-
-_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣\u3040-\u30ff\u4e00-\u9fff]")  # 한글·영숫자·일본어·한자
-MIN_BIGRAMS = 4  # 이보다 짧은 제목은 비교하지 않는다(키워드만 남은 제목끼리 묶이는 것 방지)
 
 
 def bigrams(title: str) -> set[str]:
@@ -61,73 +39,111 @@ def similarity(a: str, b: str) -> float:
 
 
 @dataclass
-class Stats:
-    total: int = 0
-    undated: int = 0
-    in_window: int = 0
-    matched: int = 0
+class TopicStats:
+    total: int = 0       # RSS에서 읽은 기사
+    in_window: int = 0   # 기간 안(중복 제외)
+    measured: int = 0    # 기사 페이지를 연 수
+    with_body: int = 0   # 본문 글자 수를 읽은 수
     selected: int = 0
 
 
-def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[Article], Stats]:
-    keywords = [keyword_pattern(k) for k in config["keywords"] if k.strip()]
-    excludes = [keyword_pattern(k) for k in config.get("exclude_keywords", []) if k.strip()]
-    hours = config.get("window_hours", 24)
-    max_articles = config.get("max_articles", 15)
-    per_source = config.get("per_source_max", 5)
-    start, end = now - timedelta(hours=hours), now  # 기준 시각 뒤 기사는 다음 실행에서 잡힌다
+def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch_page, workers: int = 8) -> None:
+    """기사 페이지를 동시에 열어 본문 글자 수·소개문·발행 시각을 채운다. 이미 잰 기사는 건너뛴다."""
+    todo = [a for a in articles if not a.measured]
 
-    # 날짜를 싣지 않는 RSS(최신 몇십 건만 싣는 곳)는 설정에서 "undated": "recent"로 두면 최근 기사로 본다.
-    undated_ok = {s["name"] for s in config.get("sources", []) if s.get("undated") == "recent"}
-    stats = Stats(total=len(articles))
-    seen_links: set[str] = set()
-    candidates: list[Article] = []
+    def one(a: Article) -> None:
+        try:
+            info = parse_article(fetcher(a.link))
+        except Exception:  # noqa: BLE001 — 열지 못한 기사는 본문 없음으로
+            a.measured = True
+            return
+        a.measured = True
+        a.body_chars = info.body_chars
+        a.page_desc = info.description
+        if a.published is None and info.published is not None:
+            a.published = info.published
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(one, todo))
+
+
+def plan_fetch(articles: list[Article], limit: int) -> list[Article]:
+    """언론사마다 번갈아 가며 최신 기사부터 limit건(본문 길이를 잴 대상)."""
+    by_source: dict[str, list[Article]] = {}
     for a in articles:
-        if a.published is None:
-            stats.undated += 1
-            if a.source not in undated_ok:
-                continue
-        elif not (start <= a.published <= end):
-            continue
-        stats.in_window += 1
-        key = normalize_link(a.link)
-        if key in seen_links:
-            continue
-        seen_links.add(key)
-        text = clean_text(a.title) + " " + clean_text(a.description)
-        if any(p.search(text) for p in excludes):
-            continue
-        a.score = score(a, keywords)
-        if a.score > 0:
-            candidates.append(a)
-    stats.matched = len(candidates)
+        by_source.setdefault(a.source, []).append(a)
+    queues = [sorted(v, key=lambda a: a.published.timestamp() if a.published else float("inf"), reverse=True)
+              for v in by_source.values()]
+    chosen: list[Article] = []
+    while len(chosen) < limit and any(queues):
+        for q in queues:
+            if q and len(chosen) < limit:
+                chosen.append(q.pop(0))
+    return chosen
 
-    # 점수 높은 것부터 대표로 삼고, 제목이 비슷한 기사는 그 대표에 묶는다.
-    def when(a: Article) -> datetime:
-        return a.published or now
 
-    candidates.sort(key=lambda a: (a.score, when(a)), reverse=True)
-    clusters: list[tuple[Article, set[str]]] = []
-    for a in candidates:
-        for rep, sources in clusters:
-            if similarity(rep.title, a.title) >= SIMILAR:
-                if a.source not in sources:
-                    sources.add(a.source)
-                    rep.also.append(a.source)
+def group_similar(articles: list[Article]) -> list[list[Article]]:
+    groups: list[list[Article]] = []
+    for a in articles:
+        for g in groups:
+            if any(similarity(a.title, b.title) >= SIMILAR for b in g):
+                g.append(a)
                 break
         else:
-            clusters.append((a, {a.source}))
+            groups.append([a])
+    return groups
 
-    clusters.sort(key=lambda c: (len(c[1]), c[0].score, when(c[0])), reverse=True)
-    chosen: list[Article] = []
-    per_count: dict[str, int] = {}
-    for rep, _ in clusters:
-        if len(chosen) >= max_articles:
-            break
-        if per_count.get(rep.source, 0) >= per_source:
-            continue
-        per_count[rep.source] = per_count.get(rep.source, 0) + 1
-        rep.summary = summarize(rep.description, rep.title)
-        chosen.append(rep)
-    stats.selected = len(chosen)
+
+def select(articles: list[Article], config: dict, now: datetime,
+           measure: Callable[[list[Article]], None] = measure_pages) -> tuple[dict[str, list[Article]], dict[str, TopicStats]]:
+    topics = [t["name"] for t in config["topics"]]
+    hours = config.get("window_hours", 24)
+    per_topic = config.get("per_topic", 5)
+    max_fetch = config.get("max_fetch_per_topic", 60)
+    undated_ok = {name for name, opt in config.get("sources", {}).items() if opt.get("undated") == "recent"}
+    start = now - timedelta(hours=hours)
+
+    def in_window(a: Article) -> bool:
+        if a.published is None:
+            return a.source in undated_ok
+        return start <= a.published <= now  # 기준 시각 뒤 기사는 다음 실행에서 잡힌다
+
+    stats = {t: TopicStats() for t in topics}
+    pools: dict[str, list[Article]] = {t: [] for t in topics}
+    seen: set[str] = set()
+    for topic in topics:  # 설정 순서대로: 여러 주제에 실린 기사는 앞 주제에
+        for a in (x for x in articles if x.topic == topic):
+            stats[topic].total += 1
+            key = normalize_link(a.link)
+            if key in seen or not in_window(a):
+                continue
+            seen.add(key)
+            pools[topic].append(a)
+        stats[topic].in_window = len(pools[topic])
+
+    plans = {t: plan_fetch(pools[t], max_fetch) for t in topics}
+    measure([a for t in topics for a in plans[t]])
+
+    chosen: dict[str, list[Article]] = {}
+    for topic in topics:
+        st = stats[topic]
+        st.measured = len(plans[topic])
+        # 기사 페이지의 발행 시각으로 기간을 다시 확인한다(날짜 없던 RSS 대비)
+        ok = [a for a in plans[topic] if a.body_chars and in_window(a)]
+        st.with_body = len(ok)
+        reps = []
+        for g in group_similar(ok):
+            g.sort(key=lambda a: a.body_chars, reverse=True)
+            rep = g[0]
+            rep.also = []
+            for other in g[1:]:
+                if other.source != rep.source and other.source not in rep.also:
+                    rep.also.append(other.source)
+            reps.append(rep)
+        reps.sort(key=lambda a: a.body_chars, reverse=True)
+        picked = reps[:per_topic]
+        for a in picked:
+            a.summary = summarize(a.description or a.page_desc, a.title)
+        st.selected = len(picked)
+        chosen[topic] = picked
     return chosen, stats
