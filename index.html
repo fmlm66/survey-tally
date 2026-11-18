@@ -6,9 +6,87 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>설문 집계기</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+  --line: #deded8; --accent: #2f5fd0; --stripe: #f1f1ec; --warn: #9a5b00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --text: #ececea; --muted: #a2a29c;
+    --line: #3a3a36; --accent: #8aa8ff; --stripe: #262624; --warn: #e0a64a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+.lead { margin: 0 0 20px; color: var(--muted); }
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+textarea {
+  width: 100%; min-height: 180px; resize: vertical; padding: 10px 12px;
+  font: 14px/1.4 ui-monospace, "SF Mono", Consolas, "D2Coding", monospace;
+  color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; tab-size: 8;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 24px; }
+button {
+  font: inherit; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.privacy { color: var(--muted); font-size: 0.875rem; }
+.summary { margin: 0 0 8px; color: var(--muted); }
+.message { margin: 0; color: var(--warn); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; min-width: 8em; }
+thead th { font-weight: 600; background: var(--stripe); }
+tbody th { font-weight: normal; }
+tbody tr:last-child > * { border-bottom: 0; }
+td { font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  th, td { padding: 8px 6px; }
+  th:first-child, td:first-child { padding-left: 10px; min-width: 5em; }
+  th:last-child, td:last-child { padding-right: 10px; }
+  thead th { white-space: normal; word-break: keep-all; }
+}
+.rules { margin-top: 28px; color: var(--muted); font-size: 0.875rem; }
+.rules summary { cursor: pointer; }
+.rules ul { padding-left: 1.2em; }
+</style>
 </head>
 <body>
+<main>
 <h1>설문 집계기</h1>
+<p class="lead">엑셀에서 머리글 줄까지 복사해 아래에 붙여넣으면 문항별 결과가 나옵니다.</p>
+
+<label for="input">응답 데이터</label>
+<textarea id="input" wrap="off" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+  placeholder="응답번호&#9;문항1&#9;문항2&#10;1&#9;5&#9;4&#10;2&#9;3&#9;"></textarea>
+<div class="actions">
+  <button type="button" id="clear">지우기</button>
+  <span class="privacy">붙여넣은 내용은 이 브라우저 안에서만 계산하며, 어디로도 보내거나 저장하지 않습니다.</span>
+</div>
+
+<section id="result" aria-live="polite"></section>
+
+<details class="rules">
+  <summary>집계 규칙</summary>
+  <ul>
+    <li>첫 줄은 머리글, 첫 열(응답번호)은 집계하지 않습니다.</li>
+    <li>앞뒤 공백을 지운 값이 1·2·3·4·5 중 하나면 <b>유효</b>, 비었거나 공백뿐이면 <b>빈 응답</b>, 그 밖의 값은 <b>제외</b>입니다.</li>
+    <li>칸 수가 머리글보다 모자란 줄은 모자란 칸을 빈 응답으로 셉니다.</li>
+    <li>평균은 유효 응답의 합 ÷ 유효 응답 수를 소수 셋째 자리에서 반올림한 값이며, 유효 응답이 없으면 "-"입니다.</li>
+  </ul>
+</details>
+</main>
 
 <!-- 계산 로직: DOM을 건드리지 않는다. 시험(tests/)이 이 블록만 뽑아 실행한다. -->
 <script id="tally-core">
@@ -150,6 +228,68 @@ var SurveyTally = (function () {
     formatAverage: formatAverage,
     tally: tally
   };
+})();
+</script>
+<!-- 화면: 입력을 읽어 계산 로직에 넘기고 결과를 그린다. -->
+<script id="tally-ui">
+(function () {
+  "use strict";
+  var input = document.getElementById("input");
+  var result = document.getElementById("result");
+  var COLUMNS = ["문항", "유효 응답", "평균", "빈 응답", "제외"];
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function render() {
+    result.replaceChildren();
+    var text = input.value;
+    if (text.trim() === "") return;
+
+    var r = SurveyTally.tally(text);
+    if (!r.hasHeader) return;
+    if (r.questions.length === 0) {
+      result.append(el("p", "message", "문항 열이 없습니다. 첫 열(응답번호) 오른쪽에 문항 열이 있는지, 탭으로 구분되어 있는지 확인하세요."));
+      return;
+    }
+
+    result.append(el("p", "summary", "응답 " + r.responses + "건 · 문항 " + r.questions.length + "개"));
+    var table = el("table");
+    var headRow = el("tr");
+    COLUMNS.forEach(function (name) {
+      var th = el("th", null, name);
+      th.scope = "col";
+      headRow.append(th);
+    });
+    var thead = el("thead");
+    thead.append(headRow);
+    table.append(thead);
+    var tbody = el("tbody");
+    r.questions.forEach(function (q) {
+      var tr = el("tr");
+      var th = el("th", null, q.name);
+      th.scope = "row";
+      tr.append(th, el("td", null, String(q.valid)), el("td", null, q.average),
+        el("td", null, String(q.blank)), el("td", null, String(q.excluded)));
+      tbody.append(tr);
+    });
+    table.append(tbody);
+    var wrap = el("div", "table-wrap");
+    wrap.append(table);
+    result.append(wrap);
+  }
+
+  input.addEventListener("input", render);
+  document.getElementById("clear").addEventListener("click", function () {
+    input.value = "";
+    render();
+    input.focus();
+  });
+  render();
 })();
 </script>
 </body>
