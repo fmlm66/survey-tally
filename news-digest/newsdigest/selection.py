@@ -129,7 +129,8 @@ def select(articles: list[Article], config: dict, now: datetime,
             pools[topic].append(a)
         stats[topic].in_window = len(pools[topic])
 
-    plans = {t: plan_fetch(pools[t], max_fetch) for t in topics}
+    # 저장 파일로 다시 만들 때 재지 않았던 기사(dump:// 자리)는 잴 대상이 아니다(통계에만 센다)
+    plans = {t: plan_fetch([a for a in pools[t] if not a.link.startswith("dump://")], max_fetch) for t in topics}
     measure([a for t in topics for a in plans[t]])
 
     chosen: dict[str, list[Article]] = {}

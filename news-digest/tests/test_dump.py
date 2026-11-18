@@ -59,6 +59,8 @@ class DumpTest(unittest.TestCase):
             pick = lambda out: [l for l in out.getvalue().splitlines() if ": 기사" in l]
             self.assertEqual(pick(live), pick(again))
             self.assertIn("산업경제: 기사 3 → 기간 안 3 → 본문 1/1 → 1건", pick(live))
+            name = "2026-11-18.html"
+            self.assertEqual((d / "live" / name).read_text(encoding="utf-8"), (d / "again" / name).read_text(encoding="utf-8"))
 
     def test_from_dump_ignores_removed_feeds(self):
         with tempfile.TemporaryDirectory() as d:
