@@ -3,6 +3,11 @@
   "window_hours": 24,
   "per_topic": 5,
   "max_fetch_per_topic": 60,
+  "exclude_titles": [
+    "^\\s*\\[(표|인사|부음|부고|게시판|포토|사진|날씨|자막뉴스)\\]",
+    "시세표",
+    "결산실적"
+  ],
   "sources": {
     "한겨레": {
       "undated": "recent"
@@ -70,16 +75,12 @@
           "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/international/?outputType=xml"
         },
         {
-          "source": "매일경제",
-          "url": "https://www.mk.co.kr/rss/30300018/"
-        },
-        {
           "source": "한국경제",
           "url": "https://www.hankyung.com/feed/international"
         },
         {
           "source": "SBS",
-          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=08"
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=07"
         }
       ]
     },
@@ -211,7 +212,7 @@
         },
         {
           "source": "SBS",
-          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=07"
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=08"
         }
       ]
     },

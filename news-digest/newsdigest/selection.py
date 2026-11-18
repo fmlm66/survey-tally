@@ -102,6 +102,7 @@ def select(articles: list[Article], config: dict, now: datetime,
     max_fetch = config.get("max_fetch_per_topic", 60)
     undated_ok = {name for name, opt in config.get("sources", {}).items() if opt.get("undated") == "recent"}
     start = now - timedelta(hours=hours)
+    skip_titles = [re.compile(p) for p in config.get("exclude_titles", [])]
 
     def in_window(a: Article) -> bool:
         if a.published is None:
@@ -115,7 +116,7 @@ def select(articles: list[Article], config: dict, now: datetime,
         for a in (x for x in articles if x.topic == topic):
             stats[topic].total += 1
             key = normalize_link(a.link)
-            if key in seen or not in_window(a):
+            if key in seen or not in_window(a) or any(p.search(clean_text(a.title)) for p in skip_titles):
                 continue
             seen.add(key)
             pools[topic].append(a)

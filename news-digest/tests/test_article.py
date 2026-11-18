@@ -37,6 +37,14 @@ class ArticleTest(unittest.TestCase):
         # 바깥 블록이 메뉴 칸 등 작은 글자를 조금 더 모을 수 있다(순위에는 영향 미미)
         self.assertTrue(2 * BODY <= parse_article(html).body_chars <= 2 * BODY + 40)
 
+    def test_arc_page_data(self):
+        # 본문이 화면이 아니라 스크립트 데이터에 있는 페이지(조선일보 등): text 항목만 센다
+        self.assertEqual(parse_article(page("arc.html")).body_chars, 2 * BODY)
+
+    def test_data_table_is_not_body(self):
+        # 숫자 표(300줄)만 긴 페이지: 표 칸 글자는 세지 않아 옆 상자(120자) 정도만 남는다
+        self.assertLess(parse_article(page("datatable.html")).body_chars or 0, 200)
+
     def test_no_body(self):
         info = parse_article(page("nobody.html"))
         self.assertIsNone(info.body_chars)

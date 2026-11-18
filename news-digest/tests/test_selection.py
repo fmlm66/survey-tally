@@ -133,6 +133,12 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(chosen["경제"], [])
         self.assertEqual(stats["경제"].in_window, 0)
 
+    def test_exclude_titles(self):
+        arts = [art("[표] 코스피 시세표", body=9000), art("[인사] 기획재정부", body=9000), art("국회 예산안 처리", body=500)]
+        chosen, stats = self.run_select(arts, exclude_titles=[r"^\[(표|인사)\]"])
+        self.assertEqual([a.title for a in chosen["정치"]], ["국회 예산안 처리"])
+        self.assertEqual(stats["정치"].in_window, 1)
+
     def test_fetch_limit(self):
         titles = ["국회 예산 처리", "대통령 해외 순방", "여야 대표 회동", "선거구 획정 착수", "지방선거 공천 갈등",
                   "개헌 논의 재점화", "국정감사 일정 확정", "총리 인사청문회", "정당 지지율 조사", "외교부 장관 발언"]
