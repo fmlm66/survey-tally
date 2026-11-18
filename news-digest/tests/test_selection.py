@@ -42,8 +42,16 @@ class HelpersTest(unittest.TestCase):
         self.assertNotEqual(normalize_link("https://a.kr/v?id=1"), normalize_link("https://a.kr/v?id=2"))
 
     def test_similarity(self):
-        self.assertGreaterEqual(similarity("정부, AI 반도체에 1조 투자", "정부 AI반도체 1조 투자한다"), 0.5)
-        self.assertLess(similarity("정부, AI 반도체에 1조 투자", "챗GPT 새 버전 공개"), 0.5)
+        same = [("정부, AI 반도체에 1조 투자", "정부 AI반도체 1조 투자한다"),
+                ('KPMG, AI로 영국 기업 첫 감사…"회계사보다 깊이 파고들어"', 'KPMG, AI로 英상장사 첫 감사…"회계사보다 더 깊이있는 질문해"'),
+                ("AI앱 ‘피클’, 인공지능 부정행위 우려에 “수능 시간 동안 이미지 입력 제한”", "피클, 수능시간에 이미지 입력 제한한다…AI 수능 악용 차단")]
+        different = [("정부, AI 반도체에 1조 투자", "챗GPT 새 버전 공개"),
+                     ("‘AI 커닝’ 2년전부터 국가시험서 적발…스마트안경은 올해 첫 사례", "경찰, ‘AI 커닝’ 세무사 수석 합격자 압수수색"),
+                     ("삼성 스마트싱스도 챗GPT 연동…AI로 가전 제어 확산", "대림동 신풍역 더 퍼스트, AI 스마트홈·친환경 설계 도입 추진")]
+        for a, b in same:
+            self.assertGreaterEqual(similarity(a, b), 0.45, (a, b))
+        for a, b in different:
+            self.assertLess(similarity(a, b), 0.45, (a, b))
 
 
 class SummarizeTest(unittest.TestCase):
@@ -119,8 +127,10 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(chosen[1].title, "챗GPT 새 버전 공개")
 
     def test_limits(self):
-        arts = [art(f"AI 소식 {chr(0xAC00 + i * 50)}{chr(0xAC00 + i * 97)}", source="A" if i < 8 else "B", hours_ago=i % 20 + 1)
-                for i in range(12)]
+        words = ["반도체 수출 급증", "로봇 청소기 신제품", "교실 수업 변화", "병원 진단 도입", "은행 대출 심사",
+                 "국방부 전력 강화", "농촌 스마트팜", "우주 발사체 성공", "게임 업계 실적", "언론사 기사 작성",
+                 "법원 판결문 검색", "기후 예측 정확도"]
+        arts = [art(f"AI {w}", source="A" if i < 8 else "B", hours_ago=i % 20 + 1) for i, w in enumerate(words)]
         chosen, _ = select(arts, dict(CONFIG, per_source_max=3, max_articles=5), NOW)
         self.assertEqual([a.source for a in chosen].count("A"), 3)
         self.assertEqual(len(chosen), 5)

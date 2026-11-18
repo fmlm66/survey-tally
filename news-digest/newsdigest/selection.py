@@ -12,7 +12,7 @@ from .summarize import clean_text, summarize
 
 TITLE_WEIGHT = 3
 BODY_WEIGHT = 1
-SIMILAR = 0.5
+SIMILAR = 0.45
 
 
 def keyword_pattern(keyword: str) -> re.Pattern:
@@ -52,8 +52,9 @@ def bigrams(title: str) -> set[str]:
 
 
 def similarity(a: str, b: str) -> float:
+    """겹치는 글자 2개 묶음 ÷ 짧은 제목의 묶음 수. 언론사마다 제목 길이가 달라도 같은 소식을 잡는다."""
     x, y = bigrams(a), bigrams(b)
-    return len(x & y) / len(x | y) if x and y else 0.0
+    return len(x & y) / min(len(x), len(y)) if x and y else 0.0
 
 
 @dataclass
