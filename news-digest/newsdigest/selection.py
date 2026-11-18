@@ -73,14 +73,17 @@ def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[A
     per_source = config.get("per_source_max", 5)
     start, end = now - timedelta(hours=hours), now + timedelta(hours=1)  # 1시간은 시계 오차 여유
 
+    # 날짜를 싣지 않는 RSS(최신 몇십 건만 싣는 곳)는 설정에서 "undated": "recent"로 두면 최근 기사로 본다.
+    undated_ok = {s["name"] for s in config.get("sources", []) if s.get("undated") == "recent"}
     stats = Stats(total=len(articles))
     seen_links: set[str] = set()
     candidates: list[Article] = []
     for a in articles:
         if a.published is None:
             stats.undated += 1
-            continue
-        if not (start <= a.published <= end):
+            if a.source not in undated_ok:
+                continue
+        elif not (start <= a.published <= end):
             continue
         stats.in_window += 1
         key = normalize_link(a.link)
@@ -96,7 +99,10 @@ def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[A
     stats.matched = len(candidates)
 
     # 점수 높은 것부터 대표로 삼고, 제목이 비슷한 기사는 그 대표에 묶는다.
-    candidates.sort(key=lambda a: (a.score, a.published), reverse=True)
+    def when(a: Article) -> datetime:
+        return a.published or now
+
+    candidates.sort(key=lambda a: (a.score, when(a)), reverse=True)
     clusters: list[tuple[Article, set[str]]] = []
     for a in candidates:
         for rep, sources in clusters:
@@ -108,7 +114,7 @@ def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[A
         else:
             clusters.append((a, {a.source}))
 
-    clusters.sort(key=lambda c: (len(c[1]), c[0].score, c[0].published), reverse=True)
+    clusters.sort(key=lambda c: (len(c[1]), c[0].score, when(c[0])), reverse=True)
     chosen: list[Article] = []
     per_count: dict[str, int] = {}
     for rep, _ in clusters:

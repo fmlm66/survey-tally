@@ -50,6 +50,10 @@ class ParseDateTest(unittest.TestCase):
         self.assertEqual(parse_date("2026.11.17 19:00"), datetime(2026, 11, 17, 19, tzinfo=KST))
         self.assertEqual(parse_date(" 2026-11-17 19:00:00 ").utcoffset(), timedelta(hours=9))
 
+    def test_date_only(self):
+        self.assertEqual(parse_date("2024.10.29"), datetime(2024, 10, 29, tzinfo=KST))
+        self.assertEqual(parse_date("2026-11-18"), datetime(2026, 11, 18, tzinfo=KST))
+
     def test_unreadable(self):
         for text in ("", None, "어제", "17/11/2026"):
             self.assertIsNone(parse_date(text), text)

@@ -44,7 +44,9 @@ def format_date(d: datetime) -> str:
     return f"{d:%Y-%m-%d} ({WEEKDAYS[d.weekday()]})"
 
 
-def format_time(published: datetime, now: datetime) -> str:
+def format_time(published: datetime | None, now: datetime) -> str:
+    if published is None:
+        return "시각 미표기"
     p, n = published.astimezone(KST), now.astimezone(KST)
     return f"{p:%H:%M}" if p.date() == n.date() else f"{p.month}/{p.day} {p:%H:%M}"
 

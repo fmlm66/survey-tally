@@ -77,6 +77,14 @@ class SelectTest(unittest.TestCase):
         self.assertEqual([a.title for a in chosen], ["AI 새 소식"])
         self.assertEqual((stats.total, stats.undated, stats.in_window, stats.matched, stats.selected), (4, 1, 1, 1, 1))
 
+    def test_undated_recent_source_included(self):
+        cfg = dict(CONFIG, sources=[{"name": "H", "feeds": ["x"], "undated": "recent"}, {"name": "A", "feeds": ["y"]}])
+        arts = [art("AI 날짜 없음 H", source="H", hours_ago=None), art("AI 날짜 없음 A", source="A", hours_ago=None),
+                art("인공지능 새 정책 발표", source="A", hours_ago=3)]
+        chosen, stats = select(arts, cfg, NOW)
+        self.assertEqual(sorted(a.title for a in chosen), ["AI 날짜 없음 H", "인공지능 새 정책 발표"])
+        self.assertEqual(stats.undated, 2)
+
     def test_off_topic_and_excluded(self):
         cfg = dict(CONFIG, exclude_keywords=["광고"])
         arts = [art("날씨 소식"), art("AI 광고 안내"), art("인공지능 정책")]

@@ -7,7 +7,7 @@
   "per_source_max": 5,
   "sources": [
     {"name": "연합뉴스", "feeds": ["https://www.yna.co.kr/rss/news.xml"]},
-    {"name": "한겨레", "feeds": ["https://www.hani.co.kr/rss/"]},
+    {"name": "한겨레", "feeds": ["https://www.hani.co.kr/rss/"], "undated": "recent"},
     {"name": "경향신문", "feeds": ["https://www.khan.co.kr/rss/rssdata/total_news.xml"]},
     {"name": "동아일보", "feeds": ["https://rss.donga.com/total.xml"]},
     {"name": "조선일보", "feeds": ["https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml"]},
@@ -15,7 +15,6 @@
     {"name": "한국경제", "feeds": ["https://www.hankyung.com/feed/all-news"]},
     {"name": "전자신문", "feeds": ["https://rss.etnews.com/Section901.xml"]},
     {"name": "SBS", "feeds": ["https://news.sbs.co.kr/news/newsflashRssFeed.do?plink=RSSREADER"]},
-    {"name": "JTBC", "feeds": ["https://fs.jtbc.co.kr/RSS/newsflash.xml"]},
     {"name": "MBC", "feeds": ["https://imnews.imbc.com/rss/google_news/narrativeNews.rss"]}
   ]
 }

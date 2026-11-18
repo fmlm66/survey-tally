@@ -51,6 +51,9 @@ class RenderTest(unittest.TestCase):
         a = Article("A", "AI 소식", "javascript:alert(1)", published=NOW)
         self.assertNotIn("javascript:", self.page([a]))
 
+    def test_undated_article(self):
+        self.assertIn("A · 시각 미표기", self.page([Article("A", "AI 소식", "https://a.kr/1")]))
+
     def test_time_from_previous_day(self):
         a = Article("A", "AI 소식", "https://a.kr/1", published=datetime(2026, 11, 17, 23, 10, tzinfo=KST))
         self.assertIn("A · 11/17 23:10", self.page([a]))

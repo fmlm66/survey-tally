@@ -116,7 +116,8 @@ def parse_feed(data: bytes, source: str) -> list[Article]:
     return articles
 
 
-_NAIVE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y/%m/%d %H:%M:%S")
+_NAIVE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y/%m/%d %H:%M:%S",
+                  "%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d")  # 날짜만 있으면 그날 0시(한국)
 
 
 def parse_date(text: str) -> datetime | None:
