@@ -61,6 +61,11 @@ class SummarizeTest(unittest.TestCase):
         s = summarize("<p>(서울=연합뉴스) 홍길동 기자 = 첫 문장이다. 둘째 문장이다. 셋째 문장이다.</p>")
         self.assertEqual(s, "첫 문장이다. 둘째 문장이다.")
 
+    def test_sentence_without_space(self):
+        self.assertEqual(summarize("성적을 믿기 어렵다고 답했다.특히 감독을 강화해야 한다. 셋째다."),
+                         "성적을 믿기 어렵다고 답했다. 특히 감독을 강화해야 한다.")
+        self.assertEqual(summarize("금리는 1.5%다. 둘째다. 셋째다."), "금리는 1.5%다. 둘째다.")
+
     def test_truncate_and_empty(self):
         s = summarize("가" * 500)
         self.assertEqual(len(s), 200)
@@ -72,7 +77,7 @@ class SummarizeTest(unittest.TestCase):
 class SelectTest(unittest.TestCase):
     def test_window_and_undated(self):
         arts = [art("AI 새 소식", hours_ago=2), art("AI 옛 소식", hours_ago=30), art("AI 날짜 없음", hours_ago=None),
-                art("AI 미래 시각", hours_ago=-3), art("AI 20분 뒤", hours_ago=-1/3)]
+                art("AI 미래 시각", hours_ago=-3), art("AI 5분 뒤", hours_ago=-1/12)]
         chosen, stats = select(arts, CONFIG, NOW)
         self.assertEqual([a.title for a in chosen], ["AI 새 소식"])
         self.assertEqual((stats.total, stats.undated, stats.in_window, stats.matched, stats.selected), (5, 1, 1, 1, 1))

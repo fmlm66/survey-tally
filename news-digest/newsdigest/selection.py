@@ -71,7 +71,7 @@ def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[A
     hours = config.get("window_hours", 24)
     max_articles = config.get("max_articles", 15)
     per_source = config.get("per_source_max", 5)
-    start, end = now - timedelta(hours=hours), now + timedelta(minutes=10)  # 10분은 시계 오차 여유
+    start, end = now - timedelta(hours=hours), now  # 기준 시각 뒤 기사는 다음 실행에서 잡힌다
 
     # 날짜를 싣지 않는 RSS(최신 몇십 건만 싣는 곳)는 설정에서 "undated": "recent"로 두면 최근 기사로 본다.
     undated_ok = {s["name"] for s in config.get("sources", []) if s.get("undated") == "recent"}
