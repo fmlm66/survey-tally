@@ -17,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 실행이 시작된 커밋이 아니라 지금 브랜치 끝을 받는다. 앞선 실행이 news/를 커밋한 뒤에
+          # 기다리던 실행이 시작되면 그 커밋 위에서 만들도록(같은 날짜 파일 충돌 방지)
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -33,5 +37,6 @@ jobs:
             exit 0
           fi
           git commit -m "news: $(TZ=Asia/Seoul date +%F) 아침 뉴스 요약"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
+          # 그 사이 다른 커밋이 끼어들어도, news/ 충돌은 이번에 만든 최신 결과로 정리한다
+          git pull --rebase -X theirs origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
