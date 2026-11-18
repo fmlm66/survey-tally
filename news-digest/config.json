@@ -1,21 +1,305 @@
 {
-  "topic": "AI(인공지능)",
-  "keywords": ["AI", "인공지능", "생성형", "챗GPT", "ChatGPT", "LLM", "거대언어모델", "딥러닝", "머신러닝", "오픈AI", "OpenAI", "제미나이", "Gemini", "클로드", "에이전트AI", "AI반도체"],
-  "exclude_keywords": [],
+  "title": "아침 뉴스",
   "window_hours": 24,
-  "max_articles": 15,
-  "per_source_max": 5,
-  "sources": [
-    {"name": "연합뉴스", "feeds": ["https://www.yna.co.kr/rss/news.xml"]},
-    {"name": "한겨레", "feeds": ["https://www.hani.co.kr/rss/"]},
-    {"name": "경향신문", "feeds": ["https://www.khan.co.kr/rss/rssdata/total_news.xml"]},
-    {"name": "동아일보", "feeds": ["https://rss.donga.com/total.xml"]},
-    {"name": "조선일보", "feeds": ["https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml"]},
-    {"name": "매일경제", "feeds": ["https://www.mk.co.kr/rss/30000001/"]},
-    {"name": "한국경제", "feeds": ["https://www.hankyung.com/feed/all-news"]},
-    {"name": "전자신문", "feeds": ["https://rss.etnews.com/Section901.xml"]},
-    {"name": "SBS", "feeds": ["https://news.sbs.co.kr/news/newsflashRssFeed.do?plink=RSSREADER"]},
-    {"name": "JTBC", "feeds": ["https://fs.jtbc.co.kr/RSS/newsflash.xml"]},
-    {"name": "MBC", "feeds": ["https://imnews.imbc.com/rss/google_news/narrativeNews.rss"]}
+  "per_topic": 5,
+  "max_fetch_per_topic": 60,
+  "exclude_titles": [
+    "^\\s*\\[(속보|표|인사|부음|부고|게시판|포토|사진|날씨|자막뉴스)\\]",
+    "시세표",
+    "결산실적",
+    "콘텐츠 다이제스트",
+    "운세",
+    "로또",
+    "(오늘|내일)의 날씨",
+    "(모닝|뉴스|아침) ?브리핑",
+    "주요 ?일정",
+    "이 시각 주요"
+  ],
+  "sources": {
+    "한겨레": {
+      "undated": "recent"
+    }
+  },
+  "headline_feeds": [
+    {
+      "source": "SBS",
+      "url": "https://news.sbs.co.kr/news/headlineRssFeed.do?plink=RSSREADER"
+    },
+    {
+      "source": "New York Times",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+    },
+    {
+      "source": "BBC News",
+      "url": "https://feeds.bbci.co.uk/news/rss.xml"
+    }
+  ],
+  "topics": [
+    {
+      "name": "국내정치",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/politics.xml"
+        },
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/politics/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/politic_news.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/politics.xml"
+        },
+        {
+          "source": "조선일보",
+          "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/politics/?outputType=xml"
+        },
+        {
+          "source": "매일경제",
+          "url": "https://www.mk.co.kr/rss/30200030/"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/politics"
+        },
+        {
+          "source": "SBS",
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=01"
+        }
+      ]
+    },
+    {
+      "name": "세계정치",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/international.xml"
+        },
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/international/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/kh_world.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/international.xml"
+        },
+        {
+          "source": "조선일보",
+          "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/international/?outputType=xml"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/international"
+        },
+        {
+          "source": "SBS",
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=07"
+        }
+      ]
+    },
+    {
+      "name": "산업경제",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/economy.xml"
+        },
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/industry.xml"
+        },
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/economy/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/economy_news.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/economy.xml"
+        },
+        {
+          "source": "조선일보",
+          "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/economy/?outputType=xml"
+        },
+        {
+          "source": "매일경제",
+          "url": "https://www.mk.co.kr/rss/30100041/"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/economy"
+        },
+        {
+          "source": "SBS",
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=02"
+        }
+      ]
+    },
+    {
+      "name": "금융증권",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/market.xml"
+        },
+        {
+          "source": "매일경제",
+          "url": "https://www.mk.co.kr/rss/50200011/"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/finance"
+        }
+      ]
+    },
+    {
+      "name": "사회",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/society.xml"
+        },
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/society/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/society_news.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/national.xml"
+        },
+        {
+          "source": "조선일보",
+          "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/national/?outputType=xml"
+        },
+        {
+          "source": "매일경제",
+          "url": "https://www.mk.co.kr/rss/50400012/"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/society"
+        },
+        {
+          "source": "SBS",
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=03"
+        }
+      ]
+    },
+    {
+      "name": "문화",
+      "feeds": [
+        {
+          "source": "연합뉴스",
+          "url": "https://www.yna.co.kr/rss/culture.xml"
+        },
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/culture/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/culture_news.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/culture.xml"
+        },
+        {
+          "source": "조선일보",
+          "url": "https://www.chosun.com/arc/outboundfeeds/rss/category/culture-life/?outputType=xml"
+        },
+        {
+          "source": "매일경제",
+          "url": "https://www.mk.co.kr/rss/30000023/"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/life"
+        },
+        {
+          "source": "SBS",
+          "url": "https://news.sbs.co.kr/news/SectionRssFeed.do?plink=RSSREADER&sectionId=08"
+        }
+      ]
+    },
+    {
+      "name": "과학기술",
+      "feeds": [
+        {
+          "source": "한겨레",
+          "url": "https://www.hani.co.kr/rss/science/"
+        },
+        {
+          "source": "경향신문",
+          "url": "https://www.khan.co.kr/rss/rssdata/science_news.xml"
+        },
+        {
+          "source": "동아일보",
+          "url": "https://rss.donga.com/science.xml"
+        },
+        {
+          "source": "한국경제",
+          "url": "https://www.hankyung.com/feed/it"
+        },
+        {
+          "source": "전자신문",
+          "url": "https://rss.etnews.com/Section901.xml"
+        }
+      ]
+    },
+    {
+      "name": "해외 언론",
+      "per_source_max": 3,
+      "body_optional": true,
+      "feeds": [
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+        },
+        {
+          "source": "New York Times",
+          "url": "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/world/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/technology/rss.xml"
+        },
+        {
+          "source": "BBC News",
+          "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
+        }
+      ]
+    }
   ]
 }

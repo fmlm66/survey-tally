@@ -1,39 +1,23 @@
-"""주제에 맞는 기사 고르기: 기간 → 키워드 점수 → 중복 묶기 → 순위."""
+"""주제별로 기사 고르기: 기간 → 중복 → 본문 길이 재기 → 같은 소식 묶기 → 본문 긴 순."""
 
 from __future__ import annotations
 
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Callable
 from urllib.parse import urlsplit
 
-from .feeds import Article
+from .article import parse_article
+from .feeds import Article, fetch_page
+from .scoring import final_score, is_opinion, pre_score, settings
 from .summarize import clean_text, summarize
 
-TITLE_WEIGHT = 3
-BODY_WEIGHT = 1
-SIMILAR = 0.5
-
-
-def keyword_pattern(keyword: str) -> re.Pattern:
-    """영문·숫자 키워드는 영문 단어 안에 묻힌 경우를 세지 않는다(AI ≠ MAIN). 한글은 그대로 포함 검사."""
-    kw = keyword.strip()
-    escaped = re.escape(kw)
-    if re.fullmatch(r"[A-Za-z0-9 .+#-]+", kw):
-        return re.compile(rf"(?<![A-Za-z]){escaped}(?![A-Za-z])", re.I)
-    return re.compile(escaped, re.I)
-
-
-def score(article: Article, keywords: list[re.Pattern]) -> int:
-    title = clean_text(article.title)
-    body = clean_text(article.description)
-    total = 0
-    for pat in keywords:
-        if pat.search(title):
-            total += TITLE_WEIGHT
-        elif pat.search(body):
-            total += BODY_WEIGHT
-    return total
+SIMILAR = 0.45
+MIN_BIGRAMS = 4  # 이보다 짧은 제목은 비교하지 않는다
+_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣぀-ヿ一-鿿]")  # 한글·영숫자·일본어·한자
 
 
 def normalize_link(link: str) -> str:
@@ -43,81 +27,273 @@ def normalize_link(link: str) -> str:
     return f"{host}{path}?{parts.query}" if parts.query else f"{host}{path}"
 
 
-_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣]")
+_HANGUL = re.compile(r"[가-힣]")
+_LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*|\d+")
+_EN_STOP = {"the", "and", "for", "with", "from", "after", "over", "into", "about", "says", "said", "say", "new",
+            "how", "why", "what", "who", "are", "was", "were", "has", "have", "had", "its", "his", "her", "their",
+            "this", "that", "will", "may", "can", "not", "but", "out", "off", "more", "than", "amid", "as", "at",
+            "by", "in", "of", "on", "to", "up", "is", "be", "an", "a", "it", "or", "us", "u.s", "live", "video"}
+
+
+def is_latin(title: str) -> bool:
+    """한글이 없고 영문이 대부분인 제목(해외 언론)."""
+    t = clean_text(title)
+    return not _HANGUL.search(t) and len(re.findall(r"[A-Za-z]", t)) >= 10
+
+
+def _en_words(title: str) -> list[str]:
+    words = [w.lower().strip("'’-") for w in _LATIN_WORD.findall(clean_text(title))]
+    return [w.removesuffix("'s").removesuffix("’s") for w in words if w and w not in _EN_STOP and len(w) >= 3]
 
 
 def bigrams(title: str) -> set[str]:
+    """한글 제목: 글자 2개 묶음. 영문 제목: 낱말 2개 묶음(영어는 글자 쌍이 어느 제목에나 흔해 쓸 수 없다)."""
+    if is_latin(title):
+        w = _en_words(title)
+        return {f"{w[i]} {w[i + 1]}" for i in range(len(w) - 1)}
     s = _NON_WORD.sub("", clean_text(title).lower())
     return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) > 1 else {s}
 
 
+_TOKEN = re.compile(r"[가-힣A-Za-z0-9]+")
+_PARTICLES = ("에서", "에게", "으로", "까지", "부터", "에는", "에도", "이다", "에", "은", "는", "이", "가", "을", "를",
+              "의", "도", "로", "와", "과", "만", "서")
+_STOP = {"종합", "속보", "단독", "영상", "포토", "정부", "오늘", "내일", "이유", "관련", "위해", "대한", "통해", "이번",
+         "올해", "내년", "기자", "뉴스", "사진", "1보", "2보", "3보"}
+MIN_SHARED_WORDS = 3     # 이만큼 핵심 낱말이 겹치면 같은 소식
+SHARED_WORDS_RATIO = 0.3  # (짧은 제목 낱말 수 대비)
+
+
+def keywords(title: str) -> set[str]:
+    """제목의 핵심 낱말(두 글자 이상, 흔한 조사·낱말 제외). 영문은 세 글자 이상, 흔한 영어 낱말 제외."""
+    if is_latin(title):
+        return set(_en_words(title))
+    out = set()
+    for tok in _TOKEN.findall(clean_text(title)):
+        if re.search(r"[가-힣]$", tok) and len(tok) >= 3:  # 한글로 끝나는 낱말(1심서 등)만 조사를 뗀다
+            for p in _PARTICLES:
+                if tok.endswith(p) and len(tok) - len(p) >= 2:
+                    tok = tok[: -len(p)]
+                    break
+        tok = tok.lower()
+        if len(tok) >= 2 and tok not in _STOP:
+            out.add(tok)
+    return out
+
+
+def _same_story(x: tuple[set[str], set[str]], y: tuple[set[str], set[str]]) -> bool:
+    """글자 2개 묶음이 많이 겹치거나(표현이 비슷), 핵심 낱말이 3개 이상 겹치면(표현이 달라도) 같은 소식."""
+    (bx, kx), (by, ky) = x, y
+    if min(len(bx), len(by)) >= MIN_BIGRAMS and len(bx & by) / min(len(bx), len(by)) >= SIMILAR:
+        return True
+    if min(len(bx), len(by)) < MIN_BIGRAMS and bx == by and bx:
+        return True
+    shared = len(kx & ky)
+    # 영문은 이름이 두 낱말로 갈려(Jensen Huang) 같은 인물만 나와도 2개가 겹치므로 하나 더 요구한다
+    need = MIN_SHARED_WORDS + (1 if (kx | ky) and not any(_HANGUL.search(w) for w in kx | ky) else 0)
+    return shared >= need and shared / max(min(len(kx), len(ky)), 1) >= SHARED_WORDS_RATIO
+
+
 def similarity(a: str, b: str) -> float:
+    """겹치는 글자 2개 묶음 ÷ 짧은 제목의 묶음 수. 언론사마다 제목 길이가 달라도 같은 소식을 잡는다."""
     x, y = bigrams(a), bigrams(b)
-    return len(x & y) / len(x | y) if x and y else 0.0
+    if min(len(x), len(y)) < MIN_BIGRAMS:
+        return 1.0 if x == y and x else 0.0
+    return len(x & y) / min(len(x), len(y))
 
 
 @dataclass
-class Stats:
-    total: int = 0
-    undated: int = 0
-    in_window: int = 0
-    matched: int = 0
+class TopicStats:
+    total: int = 0       # RSS에서 읽은 기사
+    in_window: int = 0   # 기간 안(중복 제외)
+    measured: int = 0    # 기사 페이지를 연 수
+    with_body: int = 0   # 본문 글자 수를 읽은 수
     selected: int = 0
 
 
-def select(articles: list[Article], config: dict, now: datetime) -> tuple[list[Article], Stats]:
-    keywords = [keyword_pattern(k) for k in config["keywords"] if k.strip()]
-    excludes = [keyword_pattern(k) for k in config.get("exclude_keywords", []) if k.strip()]
-    hours = config.get("window_hours", 24)
-    max_articles = config.get("max_articles", 15)
-    per_source = config.get("per_source_max", 5)
-    start, end = now - timedelta(hours=hours), now + timedelta(hours=1)  # 1시간은 시계 오차 여유
+def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch_page, workers: int = 8,
+                  per_host: int = 2) -> None:
+    """기사 페이지를 동시에 열어 본문 글자 수·소개문·발행 시각을 채운다. 이미 잰 기사는 건너뛴다."""
+    todo = [a for a in articles if not a.measured]
+    hosts: dict[str, threading.Semaphore] = {}
+    for a in todo:
+        hosts.setdefault(urlsplit(a.link).netloc.lower(), threading.Semaphore(per_host))
 
-    stats = Stats(total=len(articles))
-    seen_links: set[str] = set()
-    candidates: list[Article] = []
+    def one(a: Article) -> None:
+        try:
+            with hosts[urlsplit(a.link).netloc.lower()]:  # 한 사이트에 동시에 per_host건까지만
+                html = fetcher(a.link)
+            info = parse_article(html)
+        except Exception:  # noqa: BLE001 — 열지 못한 기사는 본문 없음으로
+            a.measured = True
+            return
+        a.measured = True
+        a.body_chars = info.body_chars
+        a.page_desc = info.description
+        if a.published is None and info.published is not None:
+            a.published = info.published
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(one, todo))
+
+
+def group_similar(articles: list[Article]) -> list[list[Article]]:
+    """같은 소식끼리 묶는다. 묶음 구성원 과반과 같은 소식이어야 들어간다.
+
+    한 기사와만 닮아도 들어가게 하면 A≈B, B≈C, C≈D…로 사슬처럼 이어져 '엔비디아', '수능'처럼
+    큰 주제 전체가 한 소식으로 뭉친다(실제 실행에서 9곳 보도로 부풀려짐).
+    """
+    keys = {id(a): (bigrams(a.title), keywords(a.title)) for a in articles}
+    groups: list[list[Article]] = []
     for a in articles:
-        if a.published is None:
-            stats.undated += 1
-            continue
-        if not (start <= a.published <= end):
-            continue
-        stats.in_window += 1
-        key = normalize_link(a.link)
-        if key in seen_links:
-            continue
-        seen_links.add(key)
-        text = clean_text(a.title) + " " + clean_text(a.description)
-        if any(p.search(text) for p in excludes):
-            continue
-        a.score = score(a, keywords)
-        if a.score > 0:
-            candidates.append(a)
-    stats.matched = len(candidates)
-
-    # 점수 높은 것부터 대표로 삼고, 제목이 비슷한 기사는 그 대표에 묶는다.
-    candidates.sort(key=lambda a: (a.score, a.published), reverse=True)
-    clusters: list[tuple[Article, set[str]]] = []
-    for a in candidates:
-        for rep, sources in clusters:
-            if similarity(rep.title, a.title) >= SIMILAR:
-                if a.source not in sources:
-                    sources.add(a.source)
-                    rep.also.append(a.source)
+        ka = keys[id(a)]
+        for g in groups:
+            hits = sum(1 for b in g if _same_story(ka, keys[id(b)]))
+            if hits * 2 > len(g):  # 과반
+                g.append(a)
                 break
         else:
-            clusters.append((a, {a.source}))
+            groups.append([a])
+    return groups
 
-    clusters.sort(key=lambda c: (len(c[1]), c[0].score, c[0].published), reverse=True)
-    chosen: list[Article] = []
-    per_count: dict[str, int] = {}
-    for rep, _ in clusters:
-        if len(chosen) >= max_articles:
-            break
-        if per_count.get(rep.source, 0) >= per_source:
-            continue
-        per_count[rep.source] = per_count.get(rep.source, 0) + 1
-        rep.summary = summarize(rep.description, rep.title)
-        chosen.append(rep)
-    stats.selected = len(chosen)
+
+def select(articles: list[Article], config: dict, now: datetime,
+           measure: Callable[[list[Article]], None] = measure_pages,
+           headlines: frozenset[str] = frozenset()) -> tuple[dict[str, list[Article]], dict[str, TopicStats]]:
+    """headlines: 언론사 주요뉴스 RSS에 실린 기사 주소(normalize_link)."""
+    sc = settings(config)
+    topics = [t["name"] for t in config["topics"]]
+    topic_opts = {t["name"]: t for t in config["topics"]}
+    hours = config.get("window_hours", 24)
+    per_topic = config.get("per_topic", 5)
+    max_fetch = config.get("max_fetch_per_topic", 60)
+    undated_ok = {name for name, opt in config.get("sources", {}).items() if opt.get("undated") == "recent"}
+    start = now - timedelta(hours=hours)
+    skip_titles = [re.compile(p) for p in config.get("exclude_titles", [])]
+
+    def in_window(a: Article) -> bool:
+        if a.published is None:
+            return a.source in undated_ok
+        return start <= a.published <= now  # 기준 시각 뒤 기사는 다음 실행에서 잡힌다
+
+    stats = {t: TopicStats() for t in topics}
+    pools: dict[str, list[Article]] = {t: [] for t in topics}
+    seen: set[str] = set()
+    for topic in topics:  # 설정 순서대로: 여러 주제에 실린 기사는 앞 주제에
+        for a in (x for x in articles if x.topic == topic):
+            stats[topic].total += 1
+            key = normalize_link(a.link)
+            if key in seen or not in_window(a) or any(p.search(clean_text(a.title)) for p in skip_titles):
+                continue
+            seen.add(key)
+            pools[topic].append(a)
+        stats[topic].in_window = len(pools[topic])
+
+    # 저장 파일로 다시 만들 때 재지 않았던 기사(dump:// 자리)는 제목이 없어 통계에만 센다
+    real = {t: [a for a in pools[t] if not a.link.startswith("dump://")] for t in topics}
+
+    # 1) 모든 주제를 통틀어 같은 소식을 묶고, 묶음마다 보도한 언론사를 센다
+    # 한 소식은 기사가 가장 많이 실린 주제 하나에만 싣는다(같으면 설정에서 앞선 주제)
+    story_sources: dict[int, list[str]] = {}
+    story_of: dict[int, int] = {}
+    home: dict[int, str] = {}
+    members: dict[int, list[Article]] = {}
+    for gi, g in enumerate(group_similar([a for t in topics for a in real[t]])):
+        sources = list(dict.fromkeys(a.source for a in g))
+        counts = {t: sum(1 for a in g if a.topic == t) for t in topics}
+        home[gi] = max(topics, key=lambda t: (counts[t], -topics.index(t)))
+        members[gi] = g
+        for a in g:
+            story_sources[id(a)] = sources
+            story_of[id(a)] = gi
+
+    # 2) 1차 점수(제목·요약문)로 잴 기사를 고른다
+    pre = {id(a): pre_score(a, len(story_sources[id(a)]), normalize_link(a.link) in headlines, sc)
+           for t in topics for a in real[t]}
+
+    def recency(a: Article) -> float:
+        return (a.published or now).timestamp()
+
+    plans = {t: sorted(real[t], key=lambda a: (pre[id(a)].points, recency(a)), reverse=True)[:max_fetch] for t in topics}
+    measure([a for t in topics for a in plans[t]])
+
+    # 3) 최종 점수와 고르기
+    measured_ok: list[Article] = []
+    for topic in topics:
+        body_optional = topic_opts[topic].get("body_optional", False)  # 유료벽 등으로 본문을 못 읽어도 후보로
+        ok = [a for a in plans[topic] if in_window(a) and (
+            (a.body_chars and a.body_chars >= sc["min_body"]) or (body_optional and a.body_chars is None))]
+        stats[topic].measured = len(plans[topic])
+        stats[topic].with_body = len(ok)
+        for a in ok:
+            fin = final_score(a, pre[id(a)], sc)
+            a.points, a.reasons = fin.points, fin.reasons
+        measured_ok += ok
+
+    def others_of(rep: Article, groups: list[int]) -> list[tuple[str, str, str]]:
+        """같은 소식을 다룬 다른 언론사 기사: 언론사마다 하나(점수·본문이 나은 것), (언론사, 제목, 주소)."""
+        best: dict[str, Article] = {}
+        for gi in groups:
+            for a in members[gi]:
+                if a.source == rep.source or a.link.startswith("dump://"):
+                    continue
+                cur = best.get(a.source)
+                if cur is None or (a.points, a.body_chars or 0) > (cur.points, cur.body_chars or 0):
+                    best[a.source] = a
+        return [(src, clean_text(a.title), a.link) for src, a in best.items()]
+
+    chosen: dict[str, list[Article]] = {}
+    for topic in topics:
+        st = stats[topic]
+        by_story: dict[int, list[Article]] = {}
+        for a in measured_ok:
+            if home[story_of[id(a)]] == topic:
+                by_story.setdefault(story_of[id(a)], []).append(a)
+        reps = [max(g, key=lambda a: (a.points, a.body_chars or 0)) for g in by_story.values()]
+        reps.sort(key=lambda a: (a.points, recency(a)), reverse=True)
+
+        # 앞 단계에서 따로 남은 같은 소식을 한 번 더 합친다(점수 높은 기사에 합침, 사슬 없이 대표끼리만 비교)
+        kept: list[tuple[Article, list[int]]] = []
+        for a in reps:
+            for k, groups in kept:
+                if same_story_loose(k, a):
+                    groups.append(story_of[id(a)])
+                    break
+            else:
+                kept.append((a, [story_of[id(a)]]))
+
+        picked: list[Article] = []
+        per_source: dict[str, int] = {}
+        source_cap = topic_opts[topic].get("per_source_max", sc["per_source_max"])
+        opinions = 0
+        for a, groups in kept:
+            if len(picked) >= per_topic:
+                break
+            if per_source.get(a.source, 0) >= source_cap:
+                continue
+            if is_opinion(a, sc):
+                if opinions >= sc["opinion"]["max_per_topic"]:
+                    continue
+                opinions += 1
+            per_source[a.source] = per_source.get(a.source, 0) + 1
+            a.also_links = others_of(a, groups)
+            a.also = [src for src, _, _ in a.also_links]
+            a.summary = summarize(a.description or a.page_desc, a.title)
+            picked.append(a)
+        st.selected = len(picked)
+        chosen[topic] = picked
     return chosen, stats
+
+
+MERGE_MIN_SHARED = 5     # 제목+요약문 핵심 낱말이 이만큼 겹치고
+MERGE_OVERLAP = 0.3      # 짧은 쪽 낱말 수 대비 이 비율 이상이면 같은 소식(실측: 같은 소식 0.35~0.50, 다른 소식 ≤0.17)
+
+
+def same_story_loose(a: Article, b: Article) -> bool:
+    """뽑힌 기사끼리 다시 비교: 제목 기준이 같거나, 제목+요약문 핵심 낱말이 충분히 겹치면 같은 소식."""
+    if _same_story((bigrams(a.title), keywords(a.title)), (bigrams(b.title), keywords(b.title))):
+        return True
+    ka = keywords(a.title + " " + (a.description or a.page_desc))
+    kb = keywords(b.title + " " + (b.description or b.page_desc))
+    shared = len(ka & kb)
+    return shared >= MERGE_MIN_SHARED and shared / max(min(len(ka), len(kb)), 1) >= MERGE_OVERLAP

@@ -50,26 +50,61 @@ class ParseDateTest(unittest.TestCase):
         self.assertEqual(parse_date("2026.11.17 19:00"), datetime(2026, 11, 17, 19, tzinfo=KST))
         self.assertEqual(parse_date(" 2026-11-17 19:00:00 ").utcoffset(), timedelta(hours=9))
 
+    def test_date_only(self):
+        self.assertEqual(parse_date("2024.10.29"), datetime(2024, 10, 29, tzinfo=KST))
+        self.assertEqual(parse_date("2026-11-18"), datetime(2026, 11, 18, tzinfo=KST))
+
     def test_unreadable(self):
         for text in ("", None, "어제", "17/11/2026"):
             self.assertIsNone(parse_date(text), text)
 
 
+class FetchRetryTest(unittest.TestCase):
+    def test_retries_then_succeeds_or_gives_up(self):
+        import io
+        import urllib.error
+        from unittest import mock
+
+        from newsdigest.feeds import fetch
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        waits = []
+        with mock.patch("urllib.request.urlopen", side_effect=[OSError("reset"), TimeoutError("slow"), Resp(b"ok")]):
+            self.assertEqual(fetch("https://x/rss", sleep=waits.append), b"ok")
+        self.assertEqual(waits, [5.0, 10.0])
+        with mock.patch("urllib.request.urlopen", side_effect=OSError("down")) as m:
+            with self.assertRaises(OSError):
+                fetch("https://x/rss", sleep=lambda s: None)
+            self.assertEqual(m.call_count, 3)
+        not_found = urllib.error.HTTPError("https://x/rss", 404, "nf", {}, None)
+        with mock.patch("urllib.request.urlopen", side_effect=not_found) as m:
+            with self.assertRaises(urllib.error.HTTPError):
+                fetch("https://x/rss", sleep=lambda s: None)
+            self.assertEqual(m.call_count, 1)  # 404는 다시 시도하지 않는다
+
+
 class CollectTest(unittest.TestCase):
-    def test_one_failure_does_not_stop_others(self):
+    def test_topics_and_one_failure_does_not_stop_others(self):
         def fetcher(url):
             if "bad" in url:
                 raise OSError("timed out")
             return read("rss2.xml")
 
-        results = collect([
-            {"name": "A", "feeds": ["https://a/rss", "https://a/bad"]},
-            {"name": "B", "feeds": ["https://b/rss"]},
-        ], fetcher=fetcher)
-        self.assertEqual([(r.source, r.error is None, len(r.articles)) for r in results],
-                         [("A", True, 3), ("A", False, 0), ("B", True, 3)])
+        config = {"topics": [
+            {"name": "정치", "feeds": [{"source": "A", "url": "https://a/rss"}, {"source": "A", "url": "https://a/bad"}]},
+            {"name": "경제", "feeds": [{"source": "B", "url": "https://b/rss"}]},
+        ]}
+        results = collect(config, fetcher=fetcher)
+        self.assertEqual([(r.topic, r.source, r.error is None, len(r.articles)) for r in results],
+                         [("정치", "A", True, 3), ("정치", "A", False, 0), ("경제", "B", True, 3)])
         self.assertIn("timed out", results[1].error)
-
+        self.assertEqual({a.topic for a in results[2].articles}, {"경제"})
 
 if __name__ == "__main__":
     unittest.main()

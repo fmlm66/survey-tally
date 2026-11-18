@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import http.client
 import re
+import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -10,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 KST = timezone(timedelta(hours=9))
-USER_AGENT = "Mozilla/5.0 (compatible; news-digest/1.0; RSS reader)"
+USER_AGENT = "Mozilla/5.0 (compatible; news-digest/1.0)"
 
 
 @dataclass
@@ -21,15 +24,41 @@ class Article:
     description: str = ""
     published: datetime | None = None
     raw_date: str = ""  # 날짜 칸 원문(읽지 못했을 때 점검용)
-    score: int = 0
+    topic: str = ""
+    measured: bool = False          # 기사 페이지를 열어 봤는지
+    body_chars: int | None = None   # 본문 글자 수(공백 제외). None: 못 읽음
+    page_desc: str = ""             # 기사 페이지의 소개문(og:description)
+    points: int = 0                 # 최종 점수
+    reasons: list[str] = field(default_factory=list)  # 점수 이유(예: "4곳 보도")
     summary: str = ""
     also: list[str] = field(default_factory=list)  # 같은 소식을 다룬 다른 언론사
+    also_links: list[tuple[str, str, str]] = field(default_factory=list)  # (언론사, 제목, 주소)
 
 
-def fetch(url: str, timeout: float = 20.0) -> bytes:
+def fetch(url: str, timeout: float = 20.0, retries: int = 2, wait: float = 5.0, sleep=time.sleep) -> bytes:
+    """RSS 받기. 연결이 끊기거나 시간이 넘으면 잠시 쉬었다가 다시 시도한다(5초, 10초)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"})
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == retries:  # 404 같은 것은 다시 해도 같다
+                raise
+        except (OSError, http.client.HTTPException):
+            if attempt == retries:
+                raise
+        sleep(wait * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
+def fetch_page(url: str, timeout: float = 15.0) -> str:
+    """기사 페이지를 받아 글자로 바꾼다(인코딩은 응답 머리글 → meta → UTF-8 → CP949 순)."""
+    from .article import decode_html  # 순환 import 피하기
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,*/*"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+        return decode_html(resp.read(2_000_000), resp.headers.get_content_charset())
 
 
 def _local(tag: str) -> str:
@@ -116,7 +145,8 @@ def parse_feed(data: bytes, source: str) -> list[Article]:
     return articles
 
 
-_NAIVE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y/%m/%d %H:%M:%S")
+_NAIVE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y/%m/%d %H:%M:%S",
+                  "%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d")  # 날짜만 있으면 그날 0시(한국)
 
 
 def parse_date(text: str) -> datetime | None:
@@ -151,20 +181,23 @@ def parse_date(text: str) -> datetime | None:
 
 @dataclass
 class FeedResult:
+    topic: str
     source: str
     url: str
     articles: list[Article]
     error: str | None = None
 
 
-def collect(sources: list[dict], fetcher=fetch) -> list[FeedResult]:
-    """설정의 언론사 목록을 돌며 RSS를 읽는다. 한 곳이 실패해도 멈추지 않는다."""
+def collect(config: dict, fetcher=fetch) -> list[FeedResult]:
+    """주제별로 설정된 RSS를 읽는다. 한 곳이 실패해도 멈추지 않는다."""
     results: list[FeedResult] = []
-    for src in sources:
-        for url in src["feeds"]:
+    for topic in config["topics"]:
+        for feed in topic["feeds"]:
             try:
-                data = fetcher(url)
-                results.append(FeedResult(src["name"], url, parse_feed(data, src["name"])))
+                arts = parse_feed(fetcher(feed["url"]), feed["source"])
+                for a in arts:
+                    a.topic = topic["name"]
+                results.append(FeedResult(topic["name"], feed["source"], feed["url"], arts))
             except Exception as exc:  # noqa: BLE001 — 어떤 실패든 기록하고 다음 주소로
-                results.append(FeedResult(src["name"], url, [], f"{type(exc).__name__}: {exc}"))
+                results.append(FeedResult(topic["name"], feed["source"], feed["url"], [], f"{type(exc).__name__}: {exc}"))
     return results

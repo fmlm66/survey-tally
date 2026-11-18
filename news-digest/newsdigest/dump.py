@@ -1,7 +1,7 @@
-"""수집 결과를 작은 JSON으로 저장/복원한다.
+"""수집·측정 결과를 JSON으로 저장/복원한다.
 
-다른 시각을 기준으로 다시 고르거나, 언론사에 직접 접속할 수 없는 곳에서 요약을 만들 때 쓴다.
-주제 키워드에 맞는 기사만 제목·주소·요약문을 남기고, 나머지는 통계용 발행 시각만 남긴다.
+언론사에 직접 접속할 수 없는 곳에서 요약을 다시 만들거나, 다른 기준 시각으로 다시 고를 때 쓴다.
+본문 길이를 잰 기사는 제목·주소·요약문·글자 수를 남기고, 나머지는 통계용 발행 시각만 남긴다.
 """
 
 from __future__ import annotations
@@ -10,37 +10,43 @@ import json
 from pathlib import Path
 
 from .feeds import Article, FeedResult, parse_date
-from .selection import keyword_pattern, score
 
 
-def dump_results(results: list[FeedResult], config: dict) -> dict:
-    keywords = [keyword_pattern(k) for k in config["keywords"] if k.strip()]
+def dump_results(results: list[FeedResult], headlines: frozenset[str] = frozenset()) -> dict:
     feeds = []
     for r in results:
         items = []
         for a in r.articles:
             p = a.published.isoformat() if a.published else None
-            if score(a, keywords) > 0:
-                items.append({"t": a.title, "l": a.link, "d": a.description, "p": p})
+            if a.measured:
+                items.append({"t": a.title, "l": a.link, "d": a.description, "p": p,
+                              "b": a.body_chars, "pd": a.page_desc})
             else:
                 items.append({"p": p})
-        feeds.append({"source": r.source, "url": r.url, "error": r.error, "articles": items})
-    return {"version": 1, "feeds": feeds}
+        feeds.append({"topic": r.topic, "source": r.source, "url": r.url, "error": r.error, "articles": items})
+    return {"version": 2, "feeds": feeds, "headlines": sorted(headlines)}
 
 
-def load_results(data: dict) -> list[FeedResult]:
+def load_results(data: dict) -> tuple[list[FeedResult], frozenset[str]]:
+    if data.get("version") != 2:
+        raise ValueError("이 형식의 저장 파일은 읽을 수 없습니다(version 2 필요)")
     results = []
-    for f in data["feeds"]:
-        arts = [Article(source=f["source"], title=i.get("t", ""), link=i.get("l", ""),
-                        description=i.get("d", ""), published=parse_date(i.get("p") or ""))
-                for i in f["articles"]]
-        results.append(FeedResult(f["source"], f["url"], arts, f.get("error")))
-    return results
+    for fi, f in enumerate(data["feeds"]):
+        arts = []
+        for i, item in enumerate(f["articles"]):
+            measured = "b" in item
+            arts.append(Article(source=f["source"], title=item.get("t", ""),
+                                link=item.get("l") or f"dump://feed{fi}/item{i}",  # 재지 않은 기사: 통계용 자리(서로 다른 주소)
+                                description=item.get("d", ""), published=parse_date(item.get("p") or ""),
+                                topic=f["topic"], measured=True, body_chars=item.get("b") if measured else None,
+                                page_desc=item.get("pd", "")))
+        results.append(FeedResult(f["topic"], f["source"], f["url"], arts, f.get("error")))
+    return results, frozenset(data.get("headlines", []))
 
 
-def write_dump(path: Path, results: list[FeedResult], config: dict) -> None:
-    path.write_text(json.dumps(dump_results(results, config), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+def write_dump(path: Path, results: list[FeedResult], headlines: frozenset[str] = frozenset()) -> None:
+    path.write_text(json.dumps(dump_results(results, headlines), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
-def read_dump(path: Path) -> list[FeedResult]:
+def read_dump(path: Path) -> tuple[list[FeedResult], frozenset[str]]:
     return load_results(json.loads(path.read_text(encoding="utf-8")))

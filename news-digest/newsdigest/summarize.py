@@ -14,7 +14,8 @@ _LEADS = [
     re.compile(r"^\s*\([^()]{1,30}=[^()]{1,30}\)\s*"),  # (서울=연합뉴스)
     re.compile(r"^[^=.!?]{0,30}?(?:기자|특파원|통신원|PD)\s*=\s*"),  # 홍길동 기자 =
 ]
-_SENTENCE_END = re.compile(r"(?<=[.?!])\s+")
+# 문장 끝: 마침표 뒤 공백, 또는 띄어쓰기 없이 붙은 "…다." 뒤(국내 RSS에 흔함). 1.5 같은 숫자는 나누지 않는다.
+_SENTENCE_END = re.compile(r"(?<=[.?!])\s+|(?<=다\.)(?=[^\s.])")
 
 
 def clean_text(raw: str) -> str:
@@ -36,9 +37,17 @@ def strip_lead(text: str) -> str:
     return text.strip()
 
 
+# 한국경제 등: 소개문이 "제목, 부제…, 홍길동 기자, 섹션" 꼴이다.
+_TRAILING_BYLINE = re.compile(r"(?:^|,)\s*[가-힣]{2,4}\s*(?:기자|특파원|객원기자)(?:,\s*[^,]{1,12})?\s*$")
+
+
 def summarize(description: str, title: str = "", sentences: int = 2, max_chars: int = 200) -> str:
     text = strip_lead(clean_text(description))
-    if not text or text == clean_text(title):
+    title = clean_text(title)
+    if title and text.startswith(title):  # 제목을 되풀이한 소개문
+        text = text[len(title):].lstrip(" ,·-—:")
+    text = _TRAILING_BYLINE.sub("", text).strip()
+    if not text or text == title:
         return ""
     parts = [p for p in _SENTENCE_END.split(text) if p]
     out = " ".join(parts[:sentences])
