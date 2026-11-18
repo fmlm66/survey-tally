@@ -43,7 +43,8 @@ def normalize_link(link: str) -> str:
     return f"{host}{path}?{parts.query}" if parts.query else f"{host}{path}"
 
 
-_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣]")
+_NON_WORD = re.compile(r"[^0-9A-Za-z가-힣\u3040-\u30ff\u4e00-\u9fff]")  # 한글·영숫자·일본어·한자
+MIN_BIGRAMS = 4  # 이보다 짧은 제목은 비교하지 않는다(키워드만 남은 제목끼리 묶이는 것 방지)
 
 
 def bigrams(title: str) -> set[str]:
@@ -54,7 +55,9 @@ def bigrams(title: str) -> set[str]:
 def similarity(a: str, b: str) -> float:
     """겹치는 글자 2개 묶음 ÷ 짧은 제목의 묶음 수. 언론사마다 제목 길이가 달라도 같은 소식을 잡는다."""
     x, y = bigrams(a), bigrams(b)
-    return len(x & y) / min(len(x), len(y)) if x and y else 0.0
+    if min(len(x), len(y)) < MIN_BIGRAMS:
+        return 1.0 if x == y and x else 0.0
+    return len(x & y) / min(len(x), len(y))
 
 
 @dataclass
