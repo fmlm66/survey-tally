@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>예시 방송</title>
+  <entry>
+    <title>생성형 AI 규제 법안 국회 통과</title>
+    <link rel="enclosure" href="https://tv.example.kr/img.jpg"/>
+    <link rel="alternate" href="https://tv.example.kr/news/10"/>
+    <summary type="html">&lt;b&gt;생성형&lt;/b&gt; 인공지능 기본법이 통과됐다.</summary>
+    <updated>2026-11-17T14:00:00Z</updated>
+  </entry>
+</feed>

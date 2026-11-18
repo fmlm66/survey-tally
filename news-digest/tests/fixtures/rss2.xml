@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+<title>예시 신문</title>
+<item>
+  <title><![CDATA[정부, AI 반도체에 1조 투자]]></title>
+  <link>https://news.example.kr/a/1</link>
+  <description><![CDATA[<p>(서울=연합뉴스) 홍길동 기자 = 정부가 인공지능 반도체 개발에 1조 원을 투자한다. 과기정통부는 18일 이같이 밝혔다. 세부 계획은 다음 달 나온다.</p>]]></description>
+  <pubDate>Tue, 17 Nov 2026 23:10:00 +0900</pubDate>
+</item>
+<item>
+  <title>날씨: 내일 전국 비</title>
+  <link>https://news.example.kr/a/2</link>
+  <description>전국에 비가 내리겠다.</description>
+  <dc:date>2026-11-17T21:00:00+09:00</dc:date>
+</item>
+<item>
+  <title>제목만 있고 링크 없는 항목</title>
+</item>
+<item>
+  <title>guid만 있는 항목</title>
+  <guid>https://news.example.kr/a/3</guid>
+  <pubDate>2026-11-17 20:00:00</pubDate>
+</item>
+</channel>
+</rss>
