@@ -45,7 +45,7 @@ def keywords(title: str) -> set[str]:
     """제목의 핵심 낱말(두 글자 이상, 흔한 조사·낱말 제외)."""
     out = set()
     for tok in _TOKEN.findall(clean_text(title)):
-        if re.fullmatch(r"[가-힣]+", tok) and len(tok) >= 3:
+        if re.search(r"[가-힣]$", tok) and len(tok) >= 3:  # 한글로 끝나는 낱말(1심서 등)만 조사를 뗀다
             for p in _PARTICLES:
                 if tok.endswith(p) and len(tok) - len(p) >= 2:
                     tok = tok[: -len(p)]

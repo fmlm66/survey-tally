@@ -63,6 +63,11 @@ class HelpersTest(unittest.TestCase):
         groups = group_similar([a, b, c])
         self.assertEqual([len(g) for g in groups], [2, 1])
 
+    def test_keywords_strip_particles(self):
+        from newsdigest.selection import keywords
+        self.assertEqual(keywords("추경호 1심서 무죄 선고"), {"추경호", "1심", "무죄", "선고"})
+        self.assertEqual(keywords("조국, 일본에서 입국을 거부당해(종합)"), {"조국", "일본", "입국", "거부당해"})
+
     def test_group_similar(self):
         g = group_similar([art("정부, AI 반도체에 1조 투자"), art("챗GPT 새 버전 공개"), art("정부 AI반도체 1조 투자한다")])
         self.assertEqual([len(x) for x in g], [2, 1])
