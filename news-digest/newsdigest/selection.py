@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from .article import parse_article
 from .feeds import Article, fetch_page
+from .scoring import final_score, is_opinion, pre_score, settings
 from .summarize import clean_text, summarize
 
 SIMILAR = 0.45
@@ -74,26 +75,20 @@ def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch
         list(pool.map(one, todo))
 
 
-def plan_fetch(articles: list[Article], limit: int) -> list[Article]:
-    """언론사마다 번갈아 가며 최신 기사부터 limit건(본문 길이를 잴 대상)."""
-    by_source: dict[str, list[Article]] = {}
-    for a in articles:
-        by_source.setdefault(a.source, []).append(a)
-    queues = [sorted(v, key=lambda a: a.published.timestamp() if a.published else float("inf"), reverse=True)
-              for v in by_source.values()]
-    chosen: list[Article] = []
-    while len(chosen) < limit and any(queues):
-        for q in queues:
-            if q and len(chosen) < limit:
-                chosen.append(q.pop(0))
-    return chosen
+def _similar_sets(x: set[str], y: set[str]) -> bool:
+    if min(len(x), len(y)) < MIN_BIGRAMS:
+        return x == y and bool(x)
+    return len(x & y) / min(len(x), len(y)) >= SIMILAR
 
 
 def group_similar(articles: list[Article]) -> list[list[Article]]:
+    """제목이 비슷한 기사끼리 묶는다(묶음 안 어느 기사와든 비슷하면 같은 묶음)."""
+    grams = {id(a): bigrams(a.title) for a in articles}
     groups: list[list[Article]] = []
     for a in articles:
+        ga = grams[id(a)]
         for g in groups:
-            if any(similarity(a.title, b.title) >= SIMILAR for b in g):
+            if any(_similar_sets(ga, grams[id(b)]) for b in g):
                 g.append(a)
                 break
         else:
@@ -102,7 +97,10 @@ def group_similar(articles: list[Article]) -> list[list[Article]]:
 
 
 def select(articles: list[Article], config: dict, now: datetime,
-           measure: Callable[[list[Article]], None] = measure_pages) -> tuple[dict[str, list[Article]], dict[str, TopicStats]]:
+           measure: Callable[[list[Article]], None] = measure_pages,
+           headlines: frozenset[str] = frozenset()) -> tuple[dict[str, list[Article]], dict[str, TopicStats]]:
+    """headlines: 언론사 주요뉴스 RSS에 실린 기사 주소(normalize_link)."""
+    sc = settings(config)
     topics = [t["name"] for t in config["topics"]]
     hours = config.get("window_hours", 24)
     per_topic = config.get("per_topic", 5)
@@ -129,30 +127,57 @@ def select(articles: list[Article], config: dict, now: datetime,
             pools[topic].append(a)
         stats[topic].in_window = len(pools[topic])
 
-    # 저장 파일로 다시 만들 때 재지 않았던 기사(dump:// 자리)는 잴 대상이 아니다(통계에만 센다)
-    plans = {t: plan_fetch([a for a in pools[t] if not a.link.startswith("dump://")], max_fetch) for t in topics}
+    # 저장 파일로 다시 만들 때 재지 않았던 기사(dump:// 자리)는 제목이 없어 통계에만 센다
+    real = {t: [a for a in pools[t] if not a.link.startswith("dump://")] for t in topics}
+
+    # 1) 모든 주제를 통틀어 같은 소식을 묶고, 묶음마다 보도한 언론사를 센다
+    story_sources: dict[int, list[str]] = {}
+    for g in group_similar([a for t in topics for a in real[t]]):
+        sources = list(dict.fromkeys(a.source for a in g))
+        for a in g:
+            story_sources[id(a)] = sources
+
+    # 2) 1차 점수(제목·요약문)로 잴 기사를 고른다
+    pre = {id(a): pre_score(a, len(story_sources[id(a)]), normalize_link(a.link) in headlines, sc)
+           for t in topics for a in real[t]}
+
+    def recency(a: Article) -> float:
+        return (a.published or now).timestamp()
+
+    plans = {t: sorted(real[t], key=lambda a: (pre[id(a)].points, recency(a)), reverse=True)[:max_fetch] for t in topics}
     measure([a for t in topics for a in plans[t]])
 
+    # 3) 최종 점수와 고르기
     chosen: dict[str, list[Article]] = {}
     for topic in topics:
         st = stats[topic]
         st.measured = len(plans[topic])
-        # 기사 페이지의 발행 시각으로 기간을 다시 확인한다(날짜 없던 RSS 대비)
-        ok = [a for a in plans[topic] if a.body_chars and in_window(a)]
+        ok = [a for a in plans[topic] if a.body_chars and a.body_chars >= sc["min_body"] and in_window(a)]
         st.with_body = len(ok)
+        for a in ok:
+            fin = final_score(a, pre[id(a)], sc)
+            a.points, a.reasons = fin.points, fin.reasons
         reps = []
         for g in group_similar(ok):
-            g.sort(key=lambda a: a.body_chars, reverse=True)
-            rep = g[0]
-            rep.also = []
-            for other in g[1:]:
-                if other.source != rep.source and other.source not in rep.also:
-                    rep.also.append(other.source)
+            rep = max(g, key=lambda a: (a.points, a.body_chars))
+            rep.also = [s for s in story_sources[id(rep)] if s != rep.source]
             reps.append(rep)
-        reps.sort(key=lambda a: a.body_chars, reverse=True)
-        picked = reps[:per_topic]
-        for a in picked:
+        reps.sort(key=lambda a: (a.points, recency(a)), reverse=True)
+        picked: list[Article] = []
+        per_source: dict[str, int] = {}
+        opinions = 0
+        for a in reps:
+            if len(picked) >= per_topic:
+                break
+            if per_source.get(a.source, 0) >= sc["per_source_max"]:
+                continue
+            if is_opinion(a, sc):
+                if opinions >= sc["opinion"]["max_per_topic"]:
+                    continue
+                opinions += 1
+            per_source[a.source] = per_source.get(a.source, 0) + 1
             a.summary = summarize(a.description or a.page_desc, a.title)
+            picked.append(a)
         st.selected = len(picked)
         chosen[topic] = picked
     return chosen, stats

@@ -68,6 +68,12 @@ class RenderTest(unittest.TestCase):
         self.assertIn(">AI alert(1) &amp; 소식</a>", html)
         self.assertIn("A&lt;b&gt; · 05:40 · 본문 500자 · 같은 소식: B&amp;C", html)
 
+    def test_reasons_shown_but_not_penalties(self):
+        a = Article("A", "x", "https://a.kr/1", published=NOW, body_chars=900, reasons=["4곳 보도", "심층·단독", "홍보성"])
+        html = page({"산업경제": [a]})
+        meta = re.search(r'<p class="meta">([^<]*)</p>', html).group(1)
+        self.assertEqual(meta, "A · 06:40 · 본문 900자 · 4곳 보도 · 심층·단독")  # 감점 이유(홍보성)는 안 보임
+
     def test_unsafe_link_not_linked(self):
         self.assertNotIn("javascript:", page({"산업경제": [Article("A", "AI", "javascript:alert(1)", published=NOW)]}))
 

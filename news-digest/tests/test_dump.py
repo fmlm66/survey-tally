@@ -36,8 +36,9 @@ class DumpTest(unittest.TestCase):
             self.assertIsNone(items[2]["b"])  # 페이지를 못 연 기사
             self.assertEqual(set(data["feeds"][1]["articles"][0]), {"t", "l", "d", "p", "b", "pd"})
             self.assertEqual(data["feeds"][2]["error"], "OSError: connection refused")
-            back = read_dump(p)
+            back, headlines = read_dump(p)
             self.assertEqual(back[0].articles[0].body_chars, 1800)
+            self.assertEqual(headlines, frozenset())
 
     def test_unmeasured_articles_keep_only_time(self):
         with tempfile.TemporaryDirectory() as d:

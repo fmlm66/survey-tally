@@ -73,6 +73,9 @@ def _meta(a: Article, now: datetime) -> str:
     parts = [a.source, format_time(a.published, now)]
     if a.body_chars:
         parts.append(f"본문 {a.body_chars:,}자")
+    good = [r for r in a.reasons if not r.startswith(("홍보", "연예"))]  # 선정 이유만(감점 이유는 감춘다)
+    if good:
+        parts.append(" · ".join(good))
     if a.also:
         parts.append("같은 소식: " + ", ".join(a.also))
     return " · ".join(parts)
@@ -107,14 +110,16 @@ def render_page(*, config: dict, chosen: dict[str, list[Article]], stats: dict[s
         else:
             body = f'<p class="empty">최근 {hours}시간 동안 본문을 확인한 &lsquo;{escape(t)}&rsquo; 기사가 없습니다.</p>'
         panels.append(f'<section class="panel" id="panel{i}" aria-label="{escape(t, quote=True)}">'
-                      f'<h2 class="topic">{escape(t)} · 본문이 긴 기사 {len(arts)}건</h2>{body}</section>')
+                      f'<h2 class="topic">{escape(t)} · {len(arts)}건</h2>{body}</section>')
 
     rows = "".join(
         f"<li>{escape(t)}: 기사 {s.total}건 → 최근 {hours}시간 {s.in_window}건 → 본문 확인 {s.with_body}/{s.measured}건 → {s.selected}건</li>"
         for t, s in stats.items())
     foot = [
-        f"<p>주제마다 최근 {hours}시간 기사 가운데 기사 본문(공백 제외 글자 수)이 가장 긴 {config.get('per_topic', 5)}건을 골랐습니다. "
-        "같은 소식은 하나로 묶고 본문이 가장 긴 기사를 보입니다. 요약은 언론사가 RSS나 기사 페이지에 실은 소개문의 앞부분이며, "
+        f"<p>주제마다 최근 {hours}시간 기사에 점수를 매겨 {config.get('per_topic', 5)}건을 골랐습니다. "
+        "여러 언론사가 함께 보도한 소식, 언론사 주요뉴스, 단독·심층·분석 기사, 충실한 본문에 점수를 더하고, "
+        "보도자료·홍보성·연예 기사는 깎았습니다. 한 언론사는 주제마다 2건, 칼럼 등 의견 기사는 1건까지입니다. "
+        "같은 소식은 하나로 묶었습니다. 요약은 언론사가 RSS나 기사 페이지에 실은 소개문의 앞부분이며, "
         "전체 기사는 제목을 눌러 언론사 사이트에서 보세요.</p>",
         f"<ul>{rows}</ul>",
         f"<p>만든 시각: {now.astimezone(KST):%Y-%m-%d %H:%M} (한국 시각)</p>",

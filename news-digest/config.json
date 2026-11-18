@@ -4,7 +4,7 @@
   "per_topic": 5,
   "max_fetch_per_topic": 60,
   "exclude_titles": [
-    "^\\s*\\[(표|인사|부음|부고|게시판|포토|사진|날씨|자막뉴스)\\]",
+    "^\\s*\\[(속보|표|인사|부음|부고|게시판|포토|사진|날씨|자막뉴스)\\]",
     "시세표",
     "결산실적",
     "콘텐츠 다이제스트"
@@ -14,6 +14,20 @@
       "undated": "recent"
     }
   },
+  "headline_feeds": [
+    {
+      "source": "연합뉴스",
+      "url": "https://www.yna.co.kr/rss/headline.xml"
+    },
+    {
+      "source": "한겨레",
+      "url": "https://www.hani.co.kr/rss/lead/"
+    },
+    {
+      "source": "SBS",
+      "url": "https://news.sbs.co.kr/news/headlineRssFeed.do?plink=RSSREADER"
+    }
+  ],
   "topics": [
     {
       "name": "국내정치",

@@ -28,6 +28,8 @@ class Article:
     measured: bool = False          # 기사 페이지를 열어 봤는지
     body_chars: int | None = None   # 본문 글자 수(공백 제외). None: 못 읽음
     page_desc: str = ""             # 기사 페이지의 소개문(og:description)
+    points: int = 0                 # 최종 점수
+    reasons: list[str] = field(default_factory=list)  # 점수 이유(예: "4곳 보도")
     summary: str = ""
     also: list[str] = field(default_factory=list)  # 같은 소식을 다룬 다른 언론사
 

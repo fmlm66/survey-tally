@@ -12,7 +12,7 @@ from pathlib import Path
 from .feeds import Article, FeedResult, parse_date
 
 
-def dump_results(results: list[FeedResult]) -> dict:
+def dump_results(results: list[FeedResult], headlines: frozenset[str] = frozenset()) -> dict:
     feeds = []
     for r in results:
         items = []
@@ -24,10 +24,10 @@ def dump_results(results: list[FeedResult]) -> dict:
             else:
                 items.append({"p": p})
         feeds.append({"topic": r.topic, "source": r.source, "url": r.url, "error": r.error, "articles": items})
-    return {"version": 2, "feeds": feeds}
+    return {"version": 2, "feeds": feeds, "headlines": sorted(headlines)}
 
 
-def load_results(data: dict) -> list[FeedResult]:
+def load_results(data: dict) -> tuple[list[FeedResult], frozenset[str]]:
     if data.get("version") != 2:
         raise ValueError("이 형식의 저장 파일은 읽을 수 없습니다(version 2 필요)")
     results = []
@@ -41,12 +41,12 @@ def load_results(data: dict) -> list[FeedResult]:
                                 topic=f["topic"], measured=True, body_chars=item.get("b") if measured else None,
                                 page_desc=item.get("pd", "")))
         results.append(FeedResult(f["topic"], f["source"], f["url"], arts, f.get("error")))
-    return results
+    return results, frozenset(data.get("headlines", []))
 
 
-def write_dump(path: Path, results: list[FeedResult]) -> None:
-    path.write_text(json.dumps(dump_results(results), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+def write_dump(path: Path, results: list[FeedResult], headlines: frozenset[str] = frozenset()) -> None:
+    path.write_text(json.dumps(dump_results(results, headlines), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
-def read_dump(path: Path) -> list[FeedResult]:
+def read_dump(path: Path) -> tuple[list[FeedResult], frozenset[str]]:
     return load_results(json.loads(path.read_text(encoding="utf-8")))

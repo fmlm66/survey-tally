@@ -14,7 +14,7 @@ from .article import parse_article
 from .dump import read_dump, write_dump
 from .feeds import KST, collect, fetch, fetch_page
 from .render import render_text, write_site
-from .selection import measure_pages, select
+from .selection import measure_pages, normalize_link, select
 
 HERE = Path(__file__).resolve().parent.parent  # news-digest/
 
@@ -32,13 +32,27 @@ def load_config(path: Path) -> dict:
     return config
 
 
+def collect_headlines(config: dict, fetcher=fetch) -> frozenset[str]:
+    """언론사 주요뉴스 RSS(headline_feeds)에 실린 기사 주소. 실패한 곳은 건너뛴다."""
+    feeds = config.get("headline_feeds", [])
+    if not feeds:
+        return frozenset()
+    results = collect({"topics": [{"name": "주요뉴스", "feeds": feeds}]}, fetcher=fetcher)
+    for r in results:
+        if r.error:
+            print(f"주요뉴스 RSS 실패 {r.source} {r.url} — {r.error}")
+    return frozenset(normalize_link(a.link) for r in results for a in r.articles)
+
+
 def check_feeds(config: dict, now: datetime, fetcher=fetch, page_fetcher=fetch_page) -> int:
     """주제·언론사별로 RSS가 열리는지, 최근 기사 수, 첫 기사 페이지의 본문 글자 수를 보고한다."""
     window = now - timedelta(hours=config.get("window_hours", 24))
     lines = ["| 결과 | 주제 | 언론사 | 기사 | 최근 | 날짜 없음 | 첫 기사 본문 | 주소 |",
              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     bad = 0
-    for r in collect(config, fetcher=fetcher):
+    checked = dict(config, topics=config["topics"] + ([{"name": "(주요뉴스)", "feeds": config["headline_feeds"]}]
+                                                    if config.get("headline_feeds") else []))
+    for r in collect(checked, fetcher=fetcher):
         if r.error:
             bad += 1
             lines.append(f"| 실패 | {r.topic} | {r.source} | - | - | - | - | {r.url} ({r.error[:100]}) |")
@@ -68,9 +82,11 @@ def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch, page_fetcher=
         from_dump: Path | None = None, dump: Path | None = None, print_text: bool = False) -> int:
     if from_dump:
         wanted = {(t["name"], f["url"]) for t in config["topics"] for f in t["feeds"]}
-        results = [r for r in read_dump(from_dump) if (r.topic, r.url) in wanted]  # 설정에서 뺀 RSS는 무시
+        results, headlines = read_dump(from_dump)
+        results = [r for r in results if (r.topic, r.url) in wanted]  # 설정에서 뺀 RSS는 무시
     else:
         results = collect(config, fetcher=fetcher)
+        headlines = collect_headlines(config, fetcher=fetcher)
     for r in results:
         print(f"{'실패' if r.error else '확인'} {r.topic} {r.source} {len(r.articles)}건 {r.url}"
               + (f" — {r.error}" if r.error else ""))
@@ -78,9 +94,10 @@ def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch, page_fetcher=
         print("모든 RSS 주소를 가져오지 못해 페이지를 만들지 않았습니다.", file=sys.stderr)
         return 1
     articles = [a for r in results for a in r.articles]
-    chosen, stats = select(articles, config, now, measure=lambda arts: measure_pages(arts, fetcher=page_fetcher))
+    chosen, stats = select(articles, config, now, measure=lambda arts: measure_pages(arts, fetcher=page_fetcher),
+                           headlines=headlines)
     if dump:
-        write_dump(dump, results)
+        write_dump(dump, results, headlines)
     day, index = write_site(out_dir, config=config, chosen=chosen, stats=stats, results=results, now=now)
     for t, s in stats.items():
         print(f"{t}: 기사 {s.total} → 기간 안 {s.in_window} → 본문 {s.with_body}/{s.measured} → {s.selected}건")
