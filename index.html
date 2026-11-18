@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>설문 집계기</title>
+</head>
+<body>
+<h1>설문 집계기</h1>
+
+<!-- 계산 로직: DOM을 건드리지 않는다. 시험(tests/)이 이 블록만 뽑아 실행한다. -->
+<script id="tally-core">
+var SurveyTally = (function () {
+  "use strict";
+
+  var VALID = /^[1-5]$/;
+
+  // 엑셀에서 복사한 탭 구분 글을 줄 배열(각 줄은 칸 배열)로 바꾼다.
+  // 따옴표로 감싼 칸("…", 안의 "는 "")은 줄바꿈·탭을 품을 수 있다.
+  function parseTSV(text) {
+    text = text == null ? "" : String(text);
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    var rows = [];
+    var n = text.length;
+    if (n === 0) return rows;
+
+    var row = [];
+    var i = 0;
+    for (;;) {
+      var value = null;
+      if (text.charAt(i) === '"') {
+        var quoted = readQuoted(text, i);
+        if (quoted) {
+          value = quoted.value;
+          i = quoted.end;
+        }
+      }
+      if (value === null) {
+        var j = i;
+        while (j < n && !isDelimiter(text.charAt(j))) j++;
+        value = text.slice(i, j);
+        i = j;
+      }
+      row.push(value);
+
+      if (i >= n) {
+        rows.push(row);
+        break;
+      }
+      var c = text.charAt(i);
+      if (c === "\t") {
+        i++;
+        continue;
+      }
+      rows.push(row);
+      row = [];
+      i += c === "\r" && text.charAt(i + 1) === "\n" ? 2 : 1;
+      if (i >= n) break;
+    }
+
+    // 복사본 끝에 붙은 빈 줄은 응답이 아니다.
+    while (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") {
+      rows.pop();
+    }
+    return rows;
+  }
+
+  function isDelimiter(c) {
+    return c === "\t" || c === "\n" || c === "\r";
+  }
+
+  // text[start]가 '"'일 때 감싼 칸을 읽는다. 닫는 따옴표 뒤가 칸/줄 끝이 아니면 null.
+  function readQuoted(text, start) {
+    var n = text.length;
+    var buf = "";
+    var j = start + 1;
+    for (;;) {
+      var k = text.indexOf('"', j);
+      if (k < 0) return null;
+      buf += text.slice(j, k);
+      if (text.charAt(k + 1) === '"') {
+        buf += '"';
+        j = k + 2;
+        continue;
+      }
+      var after = k + 1;
+      if (after === n || isDelimiter(text.charAt(after))) {
+        return { value: buf, end: after };
+      }
+      return null;
+    }
+  }
+
+  function classifyCell(value) {
+    var t = value == null ? "" : String(value).trim();
+    if (t === "") return "blank";
+    if (VALID.test(t)) return "valid";
+    return "excluded";
+  }
+
+  // 합 ÷ 수를 소수 셋째 자리에서 반올림해 둘째 자리까지. 정수 연산이라 오차가 없다.
+  function formatAverage(sum, count) {
+    if (!count) return "-";
+    var hundredths = Math.floor((200 * sum + count) / (2 * count));
+    var whole = Math.floor(hundredths / 100);
+    var frac = String(hundredths % 100);
+    if (frac.length < 2) frac = "0" + frac;
+    return whole + "." + frac;
+  }
+
+  // 첫 줄은 머리글, 첫 열(응답번호)은 집계하지 않는다.
+  function tally(text) {
+    var rows = parseTSV(text);
+    var header = rows.length ? rows[0] : [];
+    var data = rows.slice(1);
+    var questions = [];
+
+    for (var c = 1; c < header.length; c++) {
+      var name = String(header[c]).trim() || "열 " + (c + 1);
+      var valid = 0, sum = 0, blank = 0, excluded = 0;
+      for (var r = 0; r < data.length; r++) {
+        var cell = c < data[r].length ? data[r][c] : "";
+        var kind = classifyCell(cell);
+        if (kind === "valid") {
+          valid++;
+          sum += Number(String(cell).trim());
+        } else if (kind === "blank") {
+          blank++;
+        } else {
+          excluded++;
+        }
+      }
+      questions.push({
+        name: name,
+        valid: valid,
+        average: formatAverage(sum, valid),
+        blank: blank,
+        excluded: excluded
+      });
+    }
+
+    return { hasHeader: rows.length > 0, responses: data.length, questions: questions };
+  }
+
+  return {
+    parseTSV: parseTSV,
+    classifyCell: classifyCell,
+    formatAverage: formatAverage,
+    tally: tally
+  };
+})();
+</script>
+</body>
+</html>
