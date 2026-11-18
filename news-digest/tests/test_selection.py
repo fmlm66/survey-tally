@@ -44,6 +44,17 @@ class HelpersTest(unittest.TestCase):
         for a, b in different:
             self.assertLess(similarity(a, b), 0.45, (a, b))
 
+    def test_same_story_by_shared_keywords(self):
+        same = [('日, 조국 입국 거부에 "전과가 이유…독도 방문과 무관" 해명(종합)', "日 정부, 조국 입국 거부는 “출입국관리법에 따른 것”"),
+                ("‘추경호 1심 무죄’에 범여권 일제히 “사법부, 역사적 반역” 반발", '국힘, 추경호 1심 무죄에 "내란몰이 종지부…조은석 특검 고발 검토"')]
+        different = [("‘수능 초소형 장비 반입 예고’ 작성자 특정… 경찰, 온라인 부정행위 글 13건 추적", "경찰, 세무사 수석 자택 압수수색···강제수사 착수"),
+                     ("‘AI 커닝’ 2년전부터 국가시험서 적발…스마트안경은 올해 첫 사례", "경찰, ‘AI 커닝’ 세무사 수석 합격자 압수수색"),
+                     ("삼전·닉스 제외하니…3분기 코스피 영업이익 뒷걸음질", "두산퓨얼셀 등 11개 종목 코스피200 편입…OCI 등 12개 편출")]
+        for a, b in same:
+            self.assertEqual(len(group_similar([art(a), art(b)])), 1, (a, b))
+        for a, b in different:
+            self.assertEqual(len(group_similar([art(a), art(b)])), 2, (a, b))
+
     def test_group_similar(self):
         g = group_similar([art("정부, AI 반도체에 1조 투자"), art("챗GPT 새 버전 공개"), art("정부 AI반도체 1조 투자한다")])
         self.assertEqual([len(x) for x in g], [2, 1])
@@ -129,6 +140,18 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(top.also, ["B", "C"])
         self.assertIn("3곳 보도", top.reasons)
         self.assertEqual(chosen["정치"][1].title, "국회 도서관 이야기")
+
+    def test_story_goes_to_one_topic(self):
+        # 같은 소식이 경제 RSS에 2건, 정치 RSS에 1건 → 경제에만
+        arts = [art("코스피200 정기변경 11개 편입", "A", topic="경제", body=900),
+                art("코스피200 정기변경 11개 종목 편입", "B", topic="경제", body=800),
+                art("코스피200 정기변경 11개 편입 확정", "C", topic="정치", body=3000),
+                art("여야 대표 회동 무산", "D", topic="정치", body=900)]
+        chosen, _ = self.run_select(arts)
+        self.assertEqual([a.title for a in chosen["정치"]], ["여야 대표 회동 무산"])
+        self.assertEqual(len(chosen["경제"]), 1)
+        self.assertEqual(chosen["경제"][0].source, "C")  # 묶음에서 점수 같으면 본문이 긴 기사가 대표
+        self.assertEqual(sorted(chosen["경제"][0].also), ["A", "B"])
 
     def test_coverage_counts_across_topics(self):
         arts = [art("환율 1500원 돌파 비상", "A", topic="정치", body=900),

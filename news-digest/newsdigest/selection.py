@@ -32,6 +32,41 @@ def bigrams(title: str) -> set[str]:
     return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) > 1 else {s}
 
 
+_TOKEN = re.compile(r"[가-힣A-Za-z0-9]+")
+_PARTICLES = ("에서", "에게", "으로", "까지", "부터", "에는", "에도", "이다", "에", "은", "는", "이", "가", "을", "를",
+              "의", "도", "로", "와", "과", "만")
+_STOP = {"종합", "속보", "단독", "영상", "포토", "정부", "오늘", "내일", "이유", "관련", "위해", "대한", "통해", "이번",
+         "올해", "내년", "기자", "뉴스", "사진", "1보", "2보", "3보"}
+MIN_SHARED_WORDS = 3     # 이만큼 핵심 낱말이 겹치면 같은 소식
+SHARED_WORDS_RATIO = 0.3  # (짧은 제목 낱말 수 대비)
+
+
+def keywords(title: str) -> set[str]:
+    """제목의 핵심 낱말(두 글자 이상, 흔한 조사·낱말 제외)."""
+    out = set()
+    for tok in _TOKEN.findall(clean_text(title)):
+        if re.fullmatch(r"[가-힣]+", tok) and len(tok) >= 3:
+            for p in _PARTICLES:
+                if tok.endswith(p) and len(tok) - len(p) >= 2:
+                    tok = tok[: -len(p)]
+                    break
+        tok = tok.lower()
+        if len(tok) >= 2 and tok not in _STOP:
+            out.add(tok)
+    return out
+
+
+def _same_story(x: tuple[set[str], set[str]], y: tuple[set[str], set[str]]) -> bool:
+    """글자 2개 묶음이 많이 겹치거나(표현이 비슷), 핵심 낱말이 3개 이상 겹치면(표현이 달라도) 같은 소식."""
+    (bx, kx), (by, ky) = x, y
+    if min(len(bx), len(by)) >= MIN_BIGRAMS and len(bx & by) / min(len(bx), len(by)) >= SIMILAR:
+        return True
+    if min(len(bx), len(by)) < MIN_BIGRAMS and bx == by and bx:
+        return True
+    shared = len(kx & ky)
+    return shared >= MIN_SHARED_WORDS and shared / max(min(len(kx), len(ky)), 1) >= SHARED_WORDS_RATIO
+
+
 def similarity(a: str, b: str) -> float:
     """겹치는 글자 2개 묶음 ÷ 짧은 제목의 묶음 수. 언론사마다 제목 길이가 달라도 같은 소식을 잡는다."""
     x, y = bigrams(a), bigrams(b)
@@ -75,20 +110,14 @@ def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch
         list(pool.map(one, todo))
 
 
-def _similar_sets(x: set[str], y: set[str]) -> bool:
-    if min(len(x), len(y)) < MIN_BIGRAMS:
-        return x == y and bool(x)
-    return len(x & y) / min(len(x), len(y)) >= SIMILAR
-
-
 def group_similar(articles: list[Article]) -> list[list[Article]]:
-    """제목이 비슷한 기사끼리 묶는다(묶음 안 어느 기사와든 비슷하면 같은 묶음)."""
-    grams = {id(a): bigrams(a.title) for a in articles}
+    """같은 소식끼리 묶는다(묶음 안 어느 기사와든 같은 소식이면 같은 묶음)."""
+    keys = {id(a): (bigrams(a.title), keywords(a.title)) for a in articles}
     groups: list[list[Article]] = []
     for a in articles:
-        ga = grams[id(a)]
+        ka = keys[id(a)]
         for g in groups:
-            if any(_similar_sets(ga, grams[id(b)]) for b in g):
+            if any(_same_story(ka, keys[id(b)]) for b in g):
                 g.append(a)
                 break
         else:
@@ -131,11 +160,17 @@ def select(articles: list[Article], config: dict, now: datetime,
     real = {t: [a for a in pools[t] if not a.link.startswith("dump://")] for t in topics}
 
     # 1) 모든 주제를 통틀어 같은 소식을 묶고, 묶음마다 보도한 언론사를 센다
+    # 한 소식은 기사가 가장 많이 실린 주제 하나에만 싣는다(같으면 설정에서 앞선 주제)
     story_sources: dict[int, list[str]] = {}
-    for g in group_similar([a for t in topics for a in real[t]]):
+    story_of: dict[int, int] = {}
+    home: dict[int, str] = {}
+    for gi, g in enumerate(group_similar([a for t in topics for a in real[t]])):
         sources = list(dict.fromkeys(a.source for a in g))
+        counts = {t: sum(1 for a in g if a.topic == t) for t in topics}
+        home[gi] = max(topics, key=lambda t: (counts[t], -topics.index(t)))
         for a in g:
             story_sources[id(a)] = sources
+            story_of[id(a)] = gi
 
     # 2) 1차 점수(제목·요약문)로 잴 기사를 고른다
     pre = {id(a): pre_score(a, len(story_sources[id(a)]), normalize_link(a.link) in headlines, sc)
@@ -148,17 +183,25 @@ def select(articles: list[Article], config: dict, now: datetime,
     measure([a for t in topics for a in plans[t]])
 
     # 3) 최종 점수와 고르기
-    chosen: dict[str, list[Article]] = {}
+    measured_ok: list[Article] = []
     for topic in topics:
-        st = stats[topic]
-        st.measured = len(plans[topic])
         ok = [a for a in plans[topic] if a.body_chars and a.body_chars >= sc["min_body"] and in_window(a)]
-        st.with_body = len(ok)
+        stats[topic].measured = len(plans[topic])
+        stats[topic].with_body = len(ok)
         for a in ok:
             fin = final_score(a, pre[id(a)], sc)
             a.points, a.reasons = fin.points, fin.reasons
+        measured_ok += ok
+
+    chosen: dict[str, list[Article]] = {}
+    for topic in topics:
+        st = stats[topic]
+        by_story: dict[int, list[Article]] = {}
+        for a in measured_ok:
+            if home[story_of[id(a)]] == topic:
+                by_story.setdefault(story_of[id(a)], []).append(a)
         reps = []
-        for g in group_similar(ok):
+        for g in by_story.values():
             rep = max(g, key=lambda a: (a.points, a.body_chars))
             rep.also = [s for s in story_sources[id(rep)] if s != rep.source]
             reps.append(rep)

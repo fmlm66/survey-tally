@@ -168,6 +168,15 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(all(u.startswith("https://") for u in urls))
         self.assertEqual(len(urls), len(set(urls)))
 
+    def test_shipped_excludes_recurring_items(self):
+        import re as _re
+        pats = [_re.compile(p) for p in load_config(HERE / "config.json")["exclude_titles"]]
+        for title in ["[오늘의 운세] 11월 19일 목요일", "[속보] 법원 기각", "[표] 코스피 시세", "[인사] 기획재정부",
+                      "제1200회 로또 당첨번호", "[모닝브리핑] 오늘의 주요 뉴스"]:
+            self.assertTrue(any(p.search(title) for p in pats), title)
+        for title in ["‘한국 창작 춤 선구자’ 배정혜 별세", "추경호 1심 무죄"]:
+            self.assertFalse(any(p.search(title) for p in pats), title)
+
     def test_invalid_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "c.json"
