@@ -72,10 +72,10 @@ class SummarizeTest(unittest.TestCase):
 class SelectTest(unittest.TestCase):
     def test_window_and_undated(self):
         arts = [art("AI 새 소식", hours_ago=2), art("AI 옛 소식", hours_ago=30), art("AI 날짜 없음", hours_ago=None),
-                art("AI 미래 시각", hours_ago=-3)]
+                art("AI 미래 시각", hours_ago=-3), art("AI 20분 뒤", hours_ago=-1/3)]
         chosen, stats = select(arts, CONFIG, NOW)
         self.assertEqual([a.title for a in chosen], ["AI 새 소식"])
-        self.assertEqual((stats.total, stats.undated, stats.in_window, stats.matched, stats.selected), (4, 1, 1, 1, 1))
+        self.assertEqual((stats.total, stats.undated, stats.in_window, stats.matched, stats.selected), (5, 1, 1, 1, 1))
 
     def test_undated_recent_source_included(self):
         cfg = dict(CONFIG, sources=[{"name": "H", "feeds": ["x"], "undated": "recent"}, {"name": "A", "feeds": ["y"]}])

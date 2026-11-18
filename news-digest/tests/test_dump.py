@@ -32,6 +32,17 @@ class DumpTest(unittest.TestCase):
             name = "2026-11-18.html"
             self.assertEqual((d / "live" / name).read_text(encoding="utf-8"), (d / "again" / name).read_text(encoding="utf-8"))
 
+    def test_from_dump_ignores_removed_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            write_dump(d / "raw.json", collect(CONFIG["sources"], fetcher=fake_fetch), CONFIG)
+            cfg = dict(CONFIG, sources=CONFIG["sources"][:1])
+            with redirect_stdout(io.StringIO()):
+                run(cfg, d, NOW, from_dump=d / "raw.json")
+            html = (d / "2026-11-18.html").read_text(encoding="utf-8")
+            self.assertNotIn("예시방송", html)
+            self.assertNotIn("고장난곳", html)
+
     def test_roundtrip_dates(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "raw.json"

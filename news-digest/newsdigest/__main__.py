@@ -56,7 +56,11 @@ def check_feeds(config: dict, now: datetime, fetcher=fetch) -> int:
 
 def run(config: dict, out_dir: Path, now: datetime, fetcher=fetch, *, from_dump: Path | None = None,
         dump: Path | None = None, print_text: bool = False) -> int:
-    results = read_dump(from_dump) if from_dump else collect(config["sources"], fetcher=fetcher)
+    if from_dump:
+        names = {s["name"] for s in config["sources"]}
+        results = [r for r in read_dump(from_dump) if r.source in names]  # 설정에서 뺀 언론사는 무시
+    else:
+        results = collect(config["sources"], fetcher=fetcher)
     for r in results:
         print(f"{'실패' if r.error else '확인'} {r.source} {len(r.articles)}건 {r.url}" + (f" — {r.error}" if r.error else ""))
     if dump:
