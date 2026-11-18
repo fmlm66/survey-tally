@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import http.client
 import re
+import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -29,10 +32,21 @@ class Article:
     also: list[str] = field(default_factory=list)  # 같은 소식을 다룬 다른 언론사
 
 
-def fetch(url: str, timeout: float = 20.0) -> bytes:
+def fetch(url: str, timeout: float = 20.0, retries: int = 2, wait: float = 5.0, sleep=time.sleep) -> bytes:
+    """RSS 받기. 연결이 끊기거나 시간이 넘으면 잠시 쉬었다가 다시 시도한다(5초, 10초)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == retries:  # 404 같은 것은 다시 해도 같다
+                raise
+        except (OSError, http.client.HTTPException):
+            if attempt == retries:
+                raise
+        sleep(wait * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def fetch_page(url: str, timeout: float = 15.0) -> str:

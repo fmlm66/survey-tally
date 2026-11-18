@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,13 +48,19 @@ class TopicStats:
     selected: int = 0
 
 
-def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch_page, workers: int = 8) -> None:
+def measure_pages(articles: list[Article], fetcher: Callable[[str], str] = fetch_page, workers: int = 8,
+                  per_host: int = 2) -> None:
     """기사 페이지를 동시에 열어 본문 글자 수·소개문·발행 시각을 채운다. 이미 잰 기사는 건너뛴다."""
     todo = [a for a in articles if not a.measured]
+    hosts: dict[str, threading.Semaphore] = {}
+    for a in todo:
+        hosts.setdefault(urlsplit(a.link).netloc.lower(), threading.Semaphore(per_host))
 
     def one(a: Article) -> None:
         try:
-            info = parse_article(fetcher(a.link))
+            with hosts[urlsplit(a.link).netloc.lower()]:  # 한 사이트에 동시에 per_host건까지만
+                html = fetcher(a.link)
+            info = parse_article(html)
         except Exception:  # noqa: BLE001 — 열지 못한 기사는 본문 없음으로
             a.measured = True
             return

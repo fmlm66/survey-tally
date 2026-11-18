@@ -2,7 +2,7 @@
 
 본문 찾기:
 1. 구조화 데이터(JSON-LD)의 articleBody가 있으면 그 길이.
-   없으면 스크립트에 실린 기사 데이터(content_elements의 text 항목, 조선일보 등)의 길이.
+   없으면 스크립트에 실린 이 기사의 데이터(globalContent.content_elements의 text 항목, 조선일보 등)의 길이.
 2. 없으면 스크립트·메뉴·머리말·꼬리말·그림 설명·링크 글자를 뺀 뒤,
    글자가 가장 많이 모인 블록(div·article·section·main·td)의 글자 수.
    블록 점수 = 블록에 직접 있는 글자 + 바로 아래 블록들에 직접 있는 글자
@@ -88,7 +88,7 @@ class _Extractor(HTMLParser):
             text = "".join(self.ld_chunks)
             if self.ld_is_json:
                 self.ld_texts.append(text)
-            elif '"content_elements"' in text:
+            elif "globalContent" in text and '"content_elements"' in text:
                 self.data_texts.append(text)
 
     def handle_endtag(self, tag):
@@ -117,28 +117,26 @@ class _Extractor(HTMLParser):
 _TAGS = re.compile(r"<[^>]+>")
 
 
+def _text_elements_chars(elems) -> int:
+    return sum(count_chars(_TAGS.sub("", e.get("content", ""))) for e in elems
+               if isinstance(e, dict) and e.get("type") == "text" and isinstance(e.get("content"), str))
+
+
 def _content_elements_chars(script: str) -> int:
-    """스크립트 속 기사 데이터({"content_elements":[{"type":"text","content":"..."}]})에서 본문 글자 수."""
-    best = 0
-    decoder = json.JSONDecoder()
-    for m in re.finditer(r"=\s*\{", script):
-        try:
-            obj, _ = decoder.raw_decode(script, m.end() - 1)
-        except ValueError:
-            continue
-        stack = [obj]
-        while stack:
-            node = stack.pop()
-            if isinstance(node, dict):
-                elems = node.get("content_elements")
-                if isinstance(elems, list):
-                    n = sum(count_chars(_TAGS.sub("", e.get("content", ""))) for e in elems
-                            if isinstance(e, dict) and e.get("type") == "text" and isinstance(e.get("content"), str))
-                    best = max(best, n)
-                stack.extend(node.values())
-            elif isinstance(node, list):
-                stack.extend(node)
-    return best
+    """스크립트 속 기사 데이터에서 이 페이지 기사의 본문 글자 수.
+
+    Arc 기반 페이지(조선일보 등)는 `Fusion.globalContent = {..., "content_elements": [...]}`에 이 기사를,
+    다른 변수에 관련 기사들을 싣는다. globalContent의 content_elements만 센다(없으면 0).
+    """
+    m = re.search(r"globalContent\s*=\s*\{", script)
+    if not m:
+        return 0
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(script, m.end() - 1)
+    except ValueError:
+        return 0
+    elems = obj.get("content_elements") if isinstance(obj, dict) else None
+    return _text_elements_chars(elems) if isinstance(elems, list) else 0
 
 
 def _walk_ld(node, found: dict):

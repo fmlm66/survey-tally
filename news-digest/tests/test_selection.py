@@ -74,12 +74,50 @@ class SummarizeTest(unittest.TestCase):
                          "성적을 믿기 어렵다고 답했다. 특히 감독을 강화해야 한다.")
         self.assertEqual(summarize("금리는 1.5%다. 둘째다. 셋째다."), "금리는 1.5%다. 둘째다.")
 
+    def test_description_repeating_title_and_byline(self):
+        # 한국경제 소개문 꼴: "제목, 부제, 기자, 섹션"
+        title = "800조 반도체가 바꿀 대한민국 지도…'첨단산업 새 심장'이 뛴다"
+        self.assertEqual(summarize(f"{title}, 삼성·SK하이닉스 팹 4기 이상 조성", title), "삼성·SK하이닉스 팹 4기 이상 조성")
+        self.assertEqual(summarize(f"{title}, 최수진 기자, 사회", title), "")
+        self.assertEqual(summarize("법원이 기각했다. 수험생은 항고했다., 최수진 기자, 사회", "다른 제목"),
+                         "법원이 기각했다. 수험생은 항고했다.")
+
     def test_truncate_and_empty(self):
         s = summarize("가" * 500)
         self.assertEqual(len(s), 200)
         self.assertTrue(s.endswith("…"))
         self.assertEqual(summarize(""), "")
         self.assertEqual(summarize("<b>제목과 같음</b>", "제목과 같음"), "")
+
+
+class MeasureTest(unittest.TestCase):
+    def test_per_host_limit_and_failures(self):
+        import threading
+        import time
+        from newsdigest.selection import measure_pages
+
+        active, peak, lock = {}, {}, threading.Lock()
+
+        def fetcher(url):
+            host = url.split("/")[2]
+            with lock:
+                active[host] = active.get(host, 0) + 1
+                peak[host] = max(peak.get(host, 0), active[host])
+            time.sleep(0.02)
+            with lock:
+                active[host] -= 1
+            if url.endswith("/bad"):
+                raise OSError("404")
+            return "<div>" + "가" * 300 + "</div>"
+
+        arts = [art(f"기사 {i}", source="A", link=f"https://a.kr/{i}") for i in range(10)]
+        arts += [art(f"기사 b{i}", source="B", link=f"https://b.kr/{i}") for i in range(5)]
+        arts.append(art("못 여는 기사", source="B", link="https://b.kr/bad"))
+        measure_pages(arts, fetcher=fetcher, workers=8, per_host=2)
+        self.assertLessEqual(max(peak.values()), 2)
+        self.assertTrue(all(a.measured for a in arts))
+        self.assertEqual([a.body_chars for a in arts[:15]], [300] * 15)
+        self.assertIsNone(arts[-1].body_chars)
 
 
 class SelectTest(unittest.TestCase):

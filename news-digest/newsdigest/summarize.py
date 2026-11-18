@@ -37,9 +37,17 @@ def strip_lead(text: str) -> str:
     return text.strip()
 
 
+# 한국경제 등: 소개문이 "제목, 부제…, 홍길동 기자, 섹션" 꼴이다.
+_TRAILING_BYLINE = re.compile(r"(?:^|,)\s*[가-힣]{2,4}\s*(?:기자|특파원|객원기자)(?:,\s*[^,]{1,12})?\s*$")
+
+
 def summarize(description: str, title: str = "", sentences: int = 2, max_chars: int = 200) -> str:
     text = strip_lead(clean_text(description))
-    if not text or text == clean_text(title):
+    title = clean_text(title)
+    if title and text.startswith(title):  # 제목을 되풀이한 소개문
+        text = text[len(title):].lstrip(" ,·-—:")
+    text = _TRAILING_BYLINE.sub("", text).strip()
+    if not text or text == title:
         return ""
     parts = [p for p in _SENTENCE_END.split(text) if p]
     out = " ".join(parts[:sentences])

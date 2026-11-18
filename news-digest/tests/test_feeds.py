@@ -59,6 +59,36 @@ class ParseDateTest(unittest.TestCase):
             self.assertIsNone(parse_date(text), text)
 
 
+class FetchRetryTest(unittest.TestCase):
+    def test_retries_then_succeeds_or_gives_up(self):
+        import io
+        import urllib.error
+        from unittest import mock
+
+        from newsdigest.feeds import fetch
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        waits = []
+        with mock.patch("urllib.request.urlopen", side_effect=[OSError("reset"), TimeoutError("slow"), Resp(b"ok")]):
+            self.assertEqual(fetch("https://x/rss", sleep=waits.append), b"ok")
+        self.assertEqual(waits, [5.0, 10.0])
+        with mock.patch("urllib.request.urlopen", side_effect=OSError("down")) as m:
+            with self.assertRaises(OSError):
+                fetch("https://x/rss", sleep=lambda s: None)
+            self.assertEqual(m.call_count, 3)
+        not_found = urllib.error.HTTPError("https://x/rss", 404, "nf", {}, None)
+        with mock.patch("urllib.request.urlopen", side_effect=not_found) as m:
+            with self.assertRaises(urllib.error.HTTPError):
+                fetch("https://x/rss", sleep=lambda s: None)
+            self.assertEqual(m.call_count, 1)  # 404는 다시 시도하지 않는다
+
+
 class CollectTest(unittest.TestCase):
     def test_topics_and_one_failure_does_not_stop_others(self):
         def fetcher(url):

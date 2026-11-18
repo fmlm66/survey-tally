@@ -38,7 +38,8 @@ class ArticleTest(unittest.TestCase):
         self.assertTrue(2 * BODY <= parse_article(html).body_chars <= 2 * BODY + 40)
 
     def test_arc_page_data(self):
-        # 본문이 화면이 아니라 스크립트 데이터에 있는 페이지(조선일보 등): text 항목만 센다
+        # 본문이 화면이 아니라 스크립트 데이터에 있는 페이지(조선일보 등): 이 기사(globalContent)의
+        # text 항목만 센다. 같은 페이지에 실린 더 긴 관련 기사 데이터(contentCache)는 세지 않는다.
         self.assertEqual(parse_article(page("arc.html")).body_chars, 2 * BODY)
 
     def test_data_table_is_not_body(self):
