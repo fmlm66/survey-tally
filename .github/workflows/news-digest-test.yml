@@ -1,0 +1,65 @@
+name: news-digest test
+
+on:
+  pull_request:
+    paths:
+      - "news-digest/**"
+      - ".github/workflows/news-digest*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "news-digest/**"
+      - ".github/workflows/news-digest*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: news-digest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest -v
+
+  feeds:
+    # 실제 언론사 RSS 주소가 열리는지 보고만 한다(언론사 사정으로 실패할 수 있어 PR을 막지 않음).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: news-digest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m newsdigest --check-feeds || echo "::warning::일부 RSS 주소를 가져오지 못했습니다. 작업 요약(Summary)의 표를 보세요."
+
+  preview:
+    # PR에서 지금 시각 기준 요약을 미리 만들어 로그에 남긴다. 주제 기사만 담은 raw.json도
+    # 로그에 찍어, 언론사에 접속할 수 없는 곳에서 --from-dump로 다른 기준 시각의 요약을 만들 수 있게 한다.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: news-digest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m newsdigest --out ../preview --dump raw.json --print || echo "::warning::미리보기를 만들지 못했습니다."
+      - run: |
+          echo "----- RAW-JSON-BEGIN -----"
+          cat raw.json
+          echo
+          echo "----- RAW-JSON-END -----"
