@@ -48,6 +48,7 @@ jobs:
     # PR이나 Run workflow에서 지금 시각 기준 요약을 미리 만들어 로그에 남긴다. 주제 기사만 담은 raw.json도
     # 로그에 찍어, 언론사에 접속할 수 없는 곳에서 --from-dump로 다른 기준 시각의 요약을 만들 수 있게 한다.
     if: github.event_name != 'push'
+    needs: feeds  # 점검과 동시에 같은 언론사 사이트를 두드리지 않도록 순서대로
     runs-on: ubuntu-latest
     defaults:
       run:
