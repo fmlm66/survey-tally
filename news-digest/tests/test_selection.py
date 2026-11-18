@@ -68,6 +68,22 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(keywords("추경호 1심서 무죄 선고"), {"추경호", "1심", "무죄", "선고"})
         self.assertEqual(keywords("조국, 일본에서 입국을 거부당해(종합)"), {"조국", "일본", "입국", "거부당해"})
 
+    def test_english_titles_compared_by_words(self):
+        same = [("Democrats win Alaska Senate race two weeks after midterms counting began",
+                 "Democrats Win Alaska Senate Seat, Expanding Their Majority"),
+                ("Nvidia reports record revenue as Jensen Huang seeks return",
+                 "Nvidia Posts Record Revenue While Board Rejects Jensen Huang Return")]
+        different = [("Philippines police ask prosecutors to charge Thomas Markle over child sex abuse material",
+                      "How Measles Hides From the Immune System"),
+                     ("Democrats win Alaska Senate race two weeks after midterms counting began",
+                      "How Democrats Winning in Texas Affects Musk"),
+                     ("How important are Nvidia and Jensen Huang to the US economy?",
+                      "Jensen Huang’s Daughter, a Close Ally, Remains at Nvidia")]
+        for a, b in same:
+            self.assertEqual(len(group_similar([art(a), art(b)])), 1, (a, b))
+        for a, b in different:
+            self.assertEqual(len(group_similar([art(a), art(b)])), 2, (a, b))
+
     def test_group_similar(self):
         g = group_similar([art("정부, AI 반도체에 1조 투자"), art("챗GPT 새 버전 공개"), art("정부 AI반도체 1조 투자한다")])
         self.assertEqual([len(x) for x in g], [2, 1])

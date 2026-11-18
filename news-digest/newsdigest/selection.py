@@ -27,7 +27,30 @@ def normalize_link(link: str) -> str:
     return f"{host}{path}?{parts.query}" if parts.query else f"{host}{path}"
 
 
+_HANGUL = re.compile(r"[가-힣]")
+_LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*|\d+")
+_EN_STOP = {"the", "and", "for", "with", "from", "after", "over", "into", "about", "says", "said", "say", "new",
+            "how", "why", "what", "who", "are", "was", "were", "has", "have", "had", "its", "his", "her", "their",
+            "this", "that", "will", "may", "can", "not", "but", "out", "off", "more", "than", "amid", "as", "at",
+            "by", "in", "of", "on", "to", "up", "is", "be", "an", "a", "it", "or", "us", "u.s", "live", "video"}
+
+
+def is_latin(title: str) -> bool:
+    """한글이 없고 영문이 대부분인 제목(해외 언론)."""
+    t = clean_text(title)
+    return not _HANGUL.search(t) and len(re.findall(r"[A-Za-z]", t)) >= 10
+
+
+def _en_words(title: str) -> list[str]:
+    words = [w.lower().strip("'’-") for w in _LATIN_WORD.findall(clean_text(title))]
+    return [w.removesuffix("'s").removesuffix("’s") for w in words if w and w not in _EN_STOP and len(w) >= 3]
+
+
 def bigrams(title: str) -> set[str]:
+    """한글 제목: 글자 2개 묶음. 영문 제목: 낱말 2개 묶음(영어는 글자 쌍이 어느 제목에나 흔해 쓸 수 없다)."""
+    if is_latin(title):
+        w = _en_words(title)
+        return {f"{w[i]} {w[i + 1]}" for i in range(len(w) - 1)}
     s = _NON_WORD.sub("", clean_text(title).lower())
     return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) > 1 else {s}
 
@@ -42,7 +65,9 @@ SHARED_WORDS_RATIO = 0.3  # (짧은 제목 낱말 수 대비)
 
 
 def keywords(title: str) -> set[str]:
-    """제목의 핵심 낱말(두 글자 이상, 흔한 조사·낱말 제외)."""
+    """제목의 핵심 낱말(두 글자 이상, 흔한 조사·낱말 제외). 영문은 세 글자 이상, 흔한 영어 낱말 제외."""
+    if is_latin(title):
+        return set(_en_words(title))
     out = set()
     for tok in _TOKEN.findall(clean_text(title)):
         if re.search(r"[가-힣]$", tok) and len(tok) >= 3:  # 한글로 끝나는 낱말(1심서 등)만 조사를 뗀다
@@ -64,7 +89,9 @@ def _same_story(x: tuple[set[str], set[str]], y: tuple[set[str], set[str]]) -> b
     if min(len(bx), len(by)) < MIN_BIGRAMS and bx == by and bx:
         return True
     shared = len(kx & ky)
-    return shared >= MIN_SHARED_WORDS and shared / max(min(len(kx), len(ky)), 1) >= SHARED_WORDS_RATIO
+    # 영문은 이름이 두 낱말로 갈려(Jensen Huang) 같은 인물만 나와도 2개가 겹치므로 하나 더 요구한다
+    need = MIN_SHARED_WORDS + (1 if (kx | ky) and not any(_HANGUL.search(w) for w in kx | ky) else 0)
+    return shared >= need and shared / max(min(len(kx), len(ky)), 1) >= SHARED_WORDS_RATIO
 
 
 def similarity(a: str, b: str) -> float:
