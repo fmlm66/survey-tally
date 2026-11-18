@@ -20,6 +20,7 @@ class Article:
     link: str
     description: str = ""
     published: datetime | None = None
+    raw_date: str = ""  # 날짜 칸 원문(읽지 못했을 때 점검용)
     score: int = 0
     summary: str = ""
     also: list[str] = field(default_factory=list)  # 같은 소식을 다룬 다른 언론사
@@ -111,7 +112,7 @@ def parse_feed(data: bytes, source: str) -> list[Article]:
         if not title or not link:
             continue
         articles.append(Article(source=source, title=title, link=link.strip(),
-                                description=desc, published=parse_date(date)))
+                                description=desc, published=parse_date(date), raw_date=date))
     return articles
 
 

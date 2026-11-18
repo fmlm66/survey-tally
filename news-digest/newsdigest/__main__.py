@@ -41,7 +41,11 @@ def check_feeds(config: dict, now: datetime, fetcher=fetch) -> int:
         recent = sum(1 for a in r.articles if a.published and a.published >= window)
         undated = sum(1 for a in r.articles if a.published is None)
         status = "확인" if r.articles and recent else "주의"
-        lines.append(f"| {status} | {r.source} | {len(r.articles)} | {recent} | {undated} | {r.url} |")
+        note = ""
+        if undated:
+            sample = next((a.raw_date for a in r.articles if a.published is None), "")
+            note = f" (날짜 칸 예: {sample[:60]!r})"
+        lines.append(f"| {status} | {r.source} | {len(r.articles)} | {recent} | {undated} | {r.url}{note} |")
     report = "\n".join(lines)
     print(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
